@@ -1,0 +1,12 @@
+# dati dell'utente
+config.json
+companion.log*
+__pycache__/
+
+# credenziali del Nesso N1 (vedi secrets.example.h)
+firmware/nesso_n1/NessoN1_Suite/secrets.h
+# build locale (contiene le credenziali): su GitHub va solo firmware/nesso_n1/build
+firmware/nesso_n1/build_local/
+firmware/nesso_n1/build/*.elf
+firmware/nesso_n1/build/*.map
+firmware/nesso_n1/build/*.merged.bin
