@@ -10,3 +10,4 @@ firmware/nesso_n1/build_local/
 firmware/nesso_n1/build/*.elf
 firmware/nesso_n1/build/*.map
 firmware/nesso_n1/build/*.merged.bin
+companion.ico

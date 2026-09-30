@@ -11,6 +11,7 @@ from pathlib import Path
 REPO = "AndreaDp271/Companion-Robot"
 BRANCH = "main"
 VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/version.json"
+VERSION_API_URL = f"https://api.github.com/repos/{REPO}/contents/version.json?ref={BRANCH}"
 ZIP_URL = f"https://github.com/{REPO}/archive/refs/heads/{BRANCH}.zip"
 REPO_URL = f"https://github.com/{REPO}"
 
@@ -33,9 +34,16 @@ def local_versions(root):
 
 
 def remote_versions():
-    req = urllib.request.Request(VERSION_URL, headers={"User-Agent": "desktop-companion", "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.load(r)
+    try:
+        req = urllib.request.Request(VERSION_URL, headers={"User-Agent": "desktop-companion", "Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.load(r)
+    except OSError:
+        # piano B: l'API di GitHub (raw.githubusercontent.com può avere in cache un vecchio 404)
+        req = urllib.request.Request(VERSION_API_URL, headers={"User-Agent": "desktop-companion",
+                                                               "Accept": "application/vnd.github.raw"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.load(r)
 
 
 def pending(root, installed_fw):

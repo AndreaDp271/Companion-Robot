@@ -19,8 +19,10 @@
  *  Il Nesso risponde con:
  *    !update                      (KEY2 tenuto premuto) aggiorna app e firmware dalla repo GitHub
  *
+ *  La faccia usa tutto lo schermo; consumi, CPU/RAM/GPU e meteo sono nelle viste di KEY2.
  *  KEY2 breve = vista successiva (occhi -> consumi Claude -> orologio), come il tasto del RP2040.
- *  KEY2 lungo = aggiornamento dal PC; senza app sul PC mostra il QR per installarla.
+ *  KEY2 lungo = aggiornamento dal PC; senza app sul PC la installa via tastiera Bluetooth
+ *  (o mostra il QR per installarla a mano).
  */
 
 #define COMP_REPO_URL   "https://github.com/AndreaDp271/Companion-Robot"
@@ -30,8 +32,8 @@
 
 const int CW = 240, CH = 135;   // schermo in orizzontale
 const int CTOP = 14;            // barra in alto
-const int FACE_W = 150;         // occhi e scena a sinistra, pannello a destra
-const int PX = FACE_W + 2, PW = CW - PX;
+const int FACE_W = CW;          // occhi e scena a tutta larghezza (le info sono nelle viste di KEY2)
+const int XO = 45;              // spostamento per centrare le scenette disegnate larghe 150
 
 M5Canvas cc(&M5.Display);       // sprite orizzontale della pagina (creato al primo uso)
 bool ccReady = false;
@@ -105,7 +107,6 @@ void companionKey(bool down){
   if(down && !ck.down){ ck.down = true; ck.since = now; ck.longDone = false; }
   else if(down && !ck.longDone && now - ck.since >= COMP_LONG_MS){   // lungo
     ck.longDone = true;
-    M5.Speaker.tone(2200, 60);
     if(companionPcConnected()){ Serial.println("!update"); compUpdAt = now; compShowQr = false; }   // app c'è: aggiorna
     else if(compKeyboardReady()){ compShowQr = false; compBleInstall(); }                         // app non c'è: installala
     else compShowQr = true;                                                                       // spiega come fare
@@ -210,10 +211,9 @@ void companionPollSerial(){
     }
     else if(compLine.length() < 120) compLine += c;
   }
-  // Claude ti cerca: bip (su qualsiasi pagina) e, se sei sul companion, riaccende lo schermo
+  // Claude ti cerca: se sei sul companion con lo schermo spento, lo riaccende
   if(cs.act != compPrevAct){
-    if(cs.act == "ask"){ M5.Speaker.tone(1800, 80); delay(90); M5.Speaker.tone(2400, 120); if(page == PG_COMP && !screenOn) wakeScreen(); }
-    else if(cs.act == "done" && page == PG_COMP) M5.Speaker.tone(2600, 60);
+    if(cs.act == "ask" && page == PG_COMP && !screenOn) wakeScreen();
     compPrevAct = cs.act;
   }
 }
@@ -296,9 +296,10 @@ void compEyes(int cx1, int cx2, int cy, int w, int h, const String& m, uint16_t 
 // ---- accessori delle scene (area occhi: x 0..150, y 14..135) ----
 void compThought(uint32_t now){   // Claude pensa: nuvoletta con i puntini
   uint16_t c = rgb(235, 235, 245);
-  cc.fillCircle(118, 50, 3, c); cc.fillCircle(125, 41, 4, c);
-  cc.fillCircle(122, 27, 9, c); cc.fillCircle(134, 23, 9, c); cc.fillCircle(141, 31, 6, c); cc.fillCircle(130, 33, 8, c);
-  for(int i = 0; i < (int)((now / 350) % 4); i++) cc.fillCircle(123 + i * 6, 28, 2, rgb(180, 110, 255));
+  const int X = 90;   // in alto a destra
+  cc.fillCircle(X + 118, 54, 3, c); cc.fillCircle(X + 125, 44, 4, c);
+  cc.fillCircle(X + 122, 29, 10, c); cc.fillCircle(X + 134, 25, 10, c); cc.fillCircle(X + 141, 33, 7, c); cc.fillCircle(X + 130, 36, 9, c);
+  for(int i = 0; i < (int)((now / 350) % 4); i++) cc.fillCircle(X + 123 + i * 6, 30, 2, rgb(180, 110, 255));
 }
 void compSweat(int x, int y){
   uint16_t c = rgb(120, 200, 255);
@@ -315,18 +316,19 @@ void compNote(int x, int y, uint16_t c){
   cc.fillCircle(x, y, 3, c); cc.fillRect(x + 2, y - 10, 2, 10, c); cc.fillTriangle(x + 3, y - 10, x + 8, y - 7, x + 3, y - 5, c);
 }
 void compLaptop(uint32_t now){   // VS Code: portatile con codice colorato
-  cc.fillRoundRect(20, 64, 111, 58, 3, rgb(60, 60, 70));
-  cc.fillRect(23, 67, 105, 52, rgb(30, 30, 40));
+  const int X = XO;
+  cc.fillRoundRect(X + 20, 64, 111, 58, 3, rgb(60, 60, 70));
+  cc.fillRect(X + 23, 67, 105, 52, rgb(30, 30, 40));
   const uint16_t cols[] = { rgb(200, 120, 255), rgb(120, 200, 255), rgb(240, 200, 90), rgb(130, 220, 130), rgb(230, 110, 110) };
   int scroll = (now / 600) % 7;
   for(int i = 0; i < 7; i++){
     int seed = (i + scroll) * 37;
     int ind = (seed % 3) * 6, len1 = 10 + seed % 22, len2 = 8 + (seed / 3) % 28;
-    cc.fillRect(28 + ind, 71 + i * 7, len1, 3, cols[seed % 5]);
-    if(28 + ind + len1 + 4 + len2 < 125) cc.fillRect(28 + ind + len1 + 4, 71 + i * 7, len2, 3, cols[(seed / 5) % 5]);
+    cc.fillRect(X + 28 + ind, 71 + i * 7, len1, 3, cols[seed % 5]);
+    if(28 + ind + len1 + 4 + len2 < 125) cc.fillRect(X + 28 + ind + len1 + 4, 71 + i * 7, len2, 3, cols[(seed / 5) % 5]);
   }
-  if((now / 300) % 2) cc.fillRect(28 + ((now / 600) % 6) * 14, 113, 6, 3, TFT_WHITE);   // cursore
-  cc.fillRoundRect(10, 122, 131, 6, 2, rgb(150, 150, 160));
+  if((now / 300) % 2) cc.fillRect(X + 28 + ((now / 600) % 6) * 14, 113, 6, 3, TFT_WHITE);   // cursore
+  cc.fillRoundRect(X + 10, 122, 131, 6, 2, rgb(150, 150, 160));
 }
 void compPopcorn(int x, int y, uint32_t now){
   cc.fillTriangle(x, y, x + 26, y, x + 22, y + 30, rgb(230, 50, 50));
@@ -355,33 +357,33 @@ void compGameIcon(const String& g, uint32_t now){   // icona del gioco sotto gli
   } else if(g == "cities"){
     const int8_t hs[] = {20, 32, 24, 38, 28, 18, 26};
     for(int i = 0; i < 7; i++){
-      int x = 8 + i * 20, h = hs[i], y = cy + 26 - h;
+      int x = XO + 8 + i * 20, h = hs[i], y = cy + 26 - h;
       cc.fillRect(x, y, 16, h, rgb(110, 115, 130));
       for(int wy = y + 3; wy < cy + 23; wy += 5) for(int wx = x + 2; wx < x + 14; wx += 4)
         cc.fillRect(wx, wy, 2, 2, ((wx * 7 + wy * 13 + now / 900) % 3) ? rgb(250, 210, 60) : rgb(50, 50, 60));
     }
   } else if(g == "ets2"){
     for(int x = -((int)(now / 20) % 16); x < FACE_W; x += 16) cc.fillRect(x, cy + 24, 8, 2, TFT_WHITE);
-    cc.fillRect(22, cy - 14, 64, 28, rgb(230, 230, 235));
-    cc.fillRoundRect(88, cy - 8, 34, 22, 4, rgb(255, 140, 30));
-    cc.fillRect(97, cy - 5, 16, 8, rgb(120, 200, 255));
+    cc.fillRect(XO + 22, cy - 14, 64, 28, rgb(230, 230, 235));
+    cc.fillRoundRect(XO + 88, cy - 8, 34, 22, 4, rgb(255, 140, 30));
+    cc.fillRect(XO + 97, cy - 5, 16, 8, rgb(120, 200, 255));
     int sp = (now / 60) % 4;
-    for(int wx : {32, 50, 74, 98, 114}){ cc.fillCircle(wx, cy + 17, 5, rgb(40, 40, 40)); cc.fillCircle(wx + (sp == 1 ? 2 : sp == 3 ? -2 : 0), cy + 17 + (sp == 0 ? -2 : sp == 2 ? 2 : 0), 1, rgb(200, 200, 200)); }
+    for(int wx : {32, 50, 74, 98, 114}){ wx += XO; cc.fillCircle(wx, cy + 17, 5, rgb(40, 40, 40)); cc.fillCircle(wx + (sp == 1 ? 2 : sp == 3 ? -2 : 0), cy + 17 + (sp == 0 ? -2 : sp == 2 ? 2 : 0), 1, rgb(200, 200, 200)); }
   } else if(g == "isonzo"){
     uint32_t t = now % 3000;
-    if(t < 300) cc.fillCircle(24, cy - 10, 10 + t / 20, rgb(255, 150, 40));
+    if(t < 300) cc.fillCircle(XO + 24, cy - 10, 10 + t / 20, rgb(255, 150, 40));
     cc.fillArc(cx, cy + 12, 28, 0, 180, 360, rgb(110, 110, 70));
     cc.fillRect(cx - 36, cy + 11, 72, 4, rgb(90, 90, 55));
     cc.fillRect(cx - 1, cy - 20, 2, 6, rgb(90, 90, 55));
   } else if(g == "tlou"){
     float a = -0.25f + 0.3f * sin(now / 1400.0);
-    int ox = 14, oy = cy + 8;
+    int ox = XO + 14, oy = cy + 8;
     for(int r = 0; r < 130; r += 2){
       int y1 = oy + (int)(r * tan(a - 0.3f)), y2 = oy + (int)(r * tan(a + 0.3f));
       int top = max(y1, 66), bot = min(y2, CH);
       if(bot > top) cc.drawFastVLine(ox + r, top, bot - top, rgb(max(10, 80 - r / 2), max(10, 75 - r / 2), 20));
     }
-    int zx = 130 - (int)((now / 40) % 90);   // clicker che avanza
+    int zx = XO + 130 - (int)((now / 40) % 90);   // clicker che avanza
     uint16_t z = rgb(150, 170, 110);
     cc.fillCircle(zx, cy - 8, 5, z); cc.fillRect(zx - 3, cy - 3, 7, 16, z);
     for(int d = -6; d <= 6; d += 4) cc.drawLine(zx, cy - 8, zx + d, cy - 15, z);
@@ -401,22 +403,23 @@ void compOsm(bool edit, uint32_t now){   // OpenStreetMap: mappetta colorata
   cc.fillRoundRect(10, y0 + 6, 34, 22, 4, rgb(173, 209, 158));       // parco
   for(int x = x0; x < x0 + w; x++) cc.fillRect(x, y0 + 42 + (int)(5 * sin(x / 12.0)), 1, 6, rgb(170, 211, 223));   // fiume
   cc.fillRect(x0, y0 + 30, w, 5, rgb(247, 250, 191)); cc.drawRect(x0, y0 + 30, w, 5, rgb(200, 180, 120));   // strada
-  cc.fillRect(58, y0, 4, h, TFT_WHITE); cc.drawRect(58, y0, 4, h, rgb(190, 190, 190));
+  cc.fillRect(XO + 58, y0, 4, h, TFT_WHITE); cc.drawRect(XO + 58, y0, 4, h, rgb(190, 190, 190));
+  cc.fillRoundRect(XO + 150, y0 + 40, 30, 16, 4, rgb(173, 209, 158));   // secondo parco
   if(!edit){
     int py = y0 + 12 - abs((int)(4 * sin(now / 200.0)));   // segnaposto che rimbalza
-    cc.fillTriangle(100, py + 4, 110, py + 4, 105, py + 16, rgb(230, 60, 60));
-    cc.fillCircle(105, py + 3, 6, rgb(230, 60, 60)); cc.fillCircle(105, py + 3, 2, TFT_WHITE);
+    cc.fillTriangle(XO + 100, py + 4, XO + 110, py + 4, XO + 105, py + 16, rgb(230, 60, 60));
+    cc.fillCircle(XO + 105, py + 3, 6, rgb(230, 60, 60)); cc.fillCircle(XO + 105, py + 3, 2, TFT_WHITE);
   } else {   // modifica: edificio disegnato nodo per nodo
-    const int8_t pts[][2] = {{78, 4}, {130, 4}, {130, 26}, {104, 26}, {104, 40}, {78, 40}};
+    const uint8_t pts[][2] = {{78, 4}, {130, 4}, {130, 26}, {104, 26}, {104, 40}, {78, 40}};
     int n = (now / 450) % 10;
     uint16_t o = rgb(255, 140, 30);
-    if(n > 6){ cc.fillRect(79, y0 + 5, 51, 21, rgb(255, 200, 150)); cc.fillRect(79, y0 + 26, 25, 14, rgb(255, 200, 150)); }
+    if(n > 6){ cc.fillRect(XO + 79, y0 + 5, 51, 21, rgb(255, 200, 150)); cc.fillRect(XO + 79, y0 + 26, 25, 14, rgb(255, 200, 150)); }
     for(int i = 1; i < min(n + 1, 7); i++){
       int a = i - 1, b = i % 6;
-      cc.drawLine(pts[a][0], y0 + pts[a][1], pts[b][0], y0 + pts[b][1], o);
-      cc.drawLine(pts[a][0], y0 + pts[a][1] + 1, pts[b][0], y0 + pts[b][1] + 1, o);
+      cc.drawLine(XO + pts[a][0], y0 + pts[a][1], XO + pts[b][0], y0 + pts[b][1], o);
+      cc.drawLine(XO + pts[a][0], y0 + pts[a][1] + 1, XO + pts[b][0], y0 + pts[b][1] + 1, o);
     }
-    for(int i = 0; i < min(n + 1, 6); i++){ cc.fillRect(pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, TFT_WHITE); cc.drawRect(pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, o); }
+    for(int i = 0; i < min(n + 1, 6); i++){ cc.fillRect(XO + pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, TFT_WHITE); cc.drawRect(XO + pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, o); }
   }
 }
 void compWxIcon(const String& k, int cx, int cy, uint32_t now){   // meteo
@@ -436,18 +439,18 @@ void compWxIcon(const String& k, int cx, int cy, uint32_t now){   // meteo
 // ---- nuvoletta con la frase ----
 void compSpeech(const String& emo, const String& text, float k, uint32_t now){
   cc.fillRoundRect(3, CTOP + 3, FACE_W - 6, 40, 8, TFT_WHITE);
-  cc.fillTriangle(64, CTOP + 41, 80, CTOP + 41, 66, CTOP + 51, TFT_WHITE);
+  cc.fillTriangle(FACE_W / 2 - 12, CTOP + 41, FACE_W / 2 + 4, CTOP + 41, FACE_W / 2 - 10, CTOP + 51, TFT_WHITE);
   cc.setTextColor(TFT_BLACK, TFT_WHITE); cc.setTextDatum(middle_center); cc.setTextFont(&fonts::Font2);
-  String l1 = text, l2 = "";   // a capo sulla parola, max 2 righe da ~16 caratteri
-  if(text.length() > 16){
-    int cut = text.lastIndexOf(' ', 16); if(cut < 0) cut = 16;
+  String l1 = text, l2 = "";   // a capo sulla parola, max 2 righe da ~26 caratteri
+  if(text.length() > 26){
+    int cut = text.lastIndexOf(' ', 26); if(cut < 0) cut = 26;
     l1 = text.substring(0, cut); l2 = text.substring(cut + (text[cut] == ' ' ? 1 : 0));
-    if(l2.length() > 17) l2 = l2.substring(0, 17);
+    if(l2.length() > 27) l2 = l2.substring(0, 27);
   }
   if(l2.length()){ cc.drawString(l1.c_str(), FACE_W / 2, CTOP + 14); cc.drawString(l2.c_str(), FACE_W / 2, CTOP + 32); }
   else cc.drawString(l1.c_str(), FACE_W / 2, CTOP + 23);
   int bounce = (emo == "excited" || emo == "love" || emo == "happy") ? -abs((int)(3 * sin(now / 140.0))) : 0;
-  compEyes(48, 102, 96 + bounce, 34, max(2, (int)(34 * k)), emo, moodColor(emo));
+  compEyes(FACE_W / 2 - 32, FACE_W / 2 + 32, 98 + bounce, 40, max(2, (int)(36 * k)), emo, moodColor(emo));
 }
 
 // ---- barre e testi comuni ----
@@ -474,53 +477,19 @@ void compTopBar(){
   compText(companionPcConnected() ? "PC" : "--", bx - 22, 3, companionPcConnected() ? rgb(80, 220, 110) : COL_MUTED);
 }
 
-// pannello a destra: consumi, CPU/RAM/GPU, meteo, musica o cosa stai facendo
-void compPanel(uint32_t now){
-  cc.fillRect(PX - 2, CTOP, CW - PX + 2, CH - CTOP, COL_BG);
-  cc.drawFastVLine(PX - 2, CTOP, CH - CTOP, COL_LINE);
-  int x = PX + 2, w = PW - 4, y = CTOP + 3;
-  compText("CLAUDE", x, y, rgb(217, 119, 87));
-  const char* lbl[] = {"5h", "7g"}; String val[] = {cs.u5, cs.u7};
-  for(int i = 0; i < 2; i++){
-    int yy = y + 10 + i * 10, p = val[i] == "-" ? 0 : val[i].toInt();
-    compText(lbl[i], x, yy, TFT_WHITE);
-    compBar(x + 14, yy + 1, w - 38, 5, p, levelColor(p));
-    compText(val[i] == "-" ? "--" : (val[i] + "%").c_str(), x + w, yy, TFT_WHITE, top_right);
-  }
-  y += 34;
-  const char* nm[] = {"CPU", "RAM", "GPU"}; int v[] = {cs.cpu, cs.ram, cs.gpu};
-  for(int i = 0; i < 3; i++){
-    int yy = y + i * 10;
-    compText(nm[i], x, yy, COL_MUTED);
-    compBar(x + 20, yy + 1, w - 44, 5, max(0, v[i]), levelColor(max(0, v[i])));
-    char t[8]; if(v[i] < 0) strcpy(t, "--"); else snprintf(t, 8, "%d%%", v[i]);
-    compText(t, x + w, yy, TFT_WHITE, top_right);
-  }
-  y += 33;
-  if(cs.wx.length()){
-    compWxIcon(cs.wx, x + 8, y + 5, now);
-    char t[8]; snprintf(t, 8, "%dC", cs.wxTemp); compText(t, x + 20, y + 1, TFT_WHITE);
-  }
-  if(cs.gtemp >= 0){ char t[12]; snprintf(t, 12, "GPU %dC", cs.gtemp); compText(t, x + w, y + 1, cs.gtemp >= 80 ? rgb(255, 70, 60) : COL_MUTED, top_right); }
-  y += 15;
-  cc.drawFastHLine(PX, y, PW - 2, COL_LINE);
-  y += 4;
-  if(cs.media >= 0 && cs.song.length()){   // brano/video: titolo che scorre e barra del tempo
-    uint16_t mc = cs.media ? hueColor(now / 12) : rgb(150, 200, 255);
-    cc.setClipRect(PX, y, PW, 9);
-    compText(cs.song.c_str(), PX + PW - (int)((now / 30) % (cs.song.length() * 6 + PW)), y, mc);
-    cc.clearClipRect();
-    if(cs.mDur > 0){
-      int cur = min(cs.mDur, cs.mPos + (int)((millis() - cs.mAt) / 1000));
-      char a[8], b[8]; snprintf(a, 8, "%d:%02d", cur / 60, cur % 60); snprintf(b, 8, "%d:%02d", cs.mDur / 60, cs.mDur % 60);
-      compBar(x, y + 12, w, 4, cur * 100 / cs.mDur, cs.media ? hueColor(now / 12 + 120) : rgb(150, 200, 255));
-      compText(a, x, y + 19, COL_MUTED); compText(b, x + w, y + 19, COL_MUTED, top_right);
-    }
-  } else {
-    String what = cs.act == "work" ? "Claude pensa" : cs.act == "ask" ? "Claude ti cerca!" : cs.act == "done" ? "Claude ha finito" :
-                  cs.scene == "code" ? "Programmi" : cs.scene == "game" ? gameName(cs.detail) :
-                  cs.scene == "osm" ? (cs.detail == "edit" ? "OSM: modifica" : "OpenStreetMap") : "Tutto tranquillo";
-    compText(what.c_str(), PX + PW / 2, y + 8, cs.act == "ask" ? rgb(255, 150, 40) : COL_ACCENT, top_center);
+// striscia in basso per musica/video: titolo che scorre e barra del tempo
+void compMediaFooter(uint32_t now){
+  if(cs.media < 0 || !cs.song.length()) return;
+  uint16_t mc = cs.media ? hueColor(now / 12) : rgb(150, 200, 255);
+  cc.fillRect(0, CH - 19, CW, 19, TFT_BLACK);
+  cc.setClipRect(0, CH - 19, CW, 9);
+  compText(cs.song.c_str(), CW - (int)((now / 30) % (cs.song.length() * 6 + CW)), CH - 19, mc);
+  cc.clearClipRect();
+  if(cs.mDur > 0){
+    int cur = min(cs.mDur, cs.mPos + (int)((millis() - cs.mAt) / 1000));
+    char a[8], b[8]; snprintf(a, 8, "%d:%02d", cur / 60, cur % 60); snprintf(b, 8, "%d:%02d", cs.mDur / 60, cs.mDur % 60);
+    compText(a, 2, CH - 8, COL_MUTED); compText(b, CW - 2, CH - 8, COL_MUTED, top_right);
+    compBar(34, CH - 7, CW - 68, 5, cur * 100 / cs.mDur, cs.media ? hueColor(now / 12 + 120) : rgb(150, 200, 255));
   }
 }
 
@@ -615,50 +584,51 @@ void renderCompanion(){
 
   if(compUpdAt && now - compUpdAt < 10000 && !(cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0)){
     // aggiornamento chiesto al PC, in attesa della risposta
-    compEyes(48, 102, 60, 34, 40, "surprised", moodColor("excited"));
-    compText("Chiedo al PC", cx, 96, TFT_WHITE, top_center, &fonts::Font2);
-    compText(("di aggiornare" + String("...").substring(0, (now / 300) % 4)).c_str(), cx, 114, TFT_WHITE, top_center, &fonts::Font2);
+    compEyes(cx - 34, cx + 34, 58, 40, 46, "surprised", moodColor("excited"));
+    compText("Chiedo al PC", cx, 92, TFT_WHITE, top_center, &fonts::Font2);
+    compText(("di aggiornare" + String("...").substring(0, (now / 300) % 4)).c_str(), cx, 110, TFT_WHITE, top_center, &fonts::Font2);
   } else if(cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0 && m != "ask"){
     compSpeech(cs.msgEmo, cs.msgText, k, now);
   } else if(m == "music"){   // cuffie e occhi arcobaleno che ballano a tempo
     float beat = (now % 500) / 500.0f; int n = now / 500;
-    int bounce = -(int)(6 * sin(3.14159f * beat)), sway = (int)(9 * sin(now * 3.14159f / 1000.0f));
+    int bounce = -(int)(6 * sin(3.14159f * beat)), sway = (int)(14 * sin(now * 3.14159f / 1000.0f));
     const char* dance[] = {"normal", "happy", "normal", "love"};
-    int h = beat < 0.12f ? 44 : 50;
-    compEyes(cx - 26 + sway, cx + 26 + sway, 76 + bounce, 38, max(2, (int)(h * k)), dance[(n / 4) % 4], hueColor(now / 8));
-    compHeadphones(cx + sway, 76 + bounce, 56, hueColor(now / 8 + 180));
-    for(int i = 0; i < 4; i++){   // note colorate che salgono
-      int t = (now / 20 + i * 40) % 160, side = i % 2 ? 1 : -1;
-      compNote(cx + side * (52 + t / 8), 128 - t * 2 / 3, hueColor(i * 90 + now / 10));
+    int h = beat < 0.12f ? 44 : 52;
+    compEyes(cx - 28 + sway, cx + 28 + sway, 74 + bounce, 42, max(2, (int)(h * k)), dance[(n / 4) % 4], hueColor(now / 8));
+    compHeadphones(cx + sway, 74 + bounce, 58, hueColor(now / 8 + 180));
+    for(int i = 0; i < 6; i++){   // note colorate che salgono
+      int t = (now / 20 + i * 27) % 160, side = i % 2 ? 1 : -1;
+      compNote(cx + side * (72 + t / 5 + (i / 2) * 6), 108 - t * 2 / 3, hueColor(i * 60 + now / 10));
     }
   } else if(m == "video"){
     int fl = (now / 180) % 5 == 0 ? 3 : 0;
-    compEyes(40 + ox / 3, 88 + ox / 3, 66, 36, max(2, (int)((44 - fl) * k)), "normal", fl ? rgb(200, 230, 255) : moodColor("video"));
-    compPopcorn(112, 96, now);
+    compEyes(cx - 44 + ox / 3, cx + 12 + ox / 3, 62, 44, max(2, (int)((52 - fl) * k)), "normal", fl ? rgb(200, 230, 255) : moodColor("video"));
+    compPopcorn(cx + 56, 76, now);
   } else if(m == "code"){
-    compEyes(cx - 26 + ox / 2, cx + 26 + ox / 2, 38 + oy / 3, 34, max(2, (int)(30 * k)), "normal", moodColor("code"));
-    if(cs.media == 1) compHeadphones(cx + ox / 2, 40, 52, rgb(255, 90, 170));
+    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(30 * k)), "normal", moodColor("code"));
+    if(cs.media == 1) compHeadphones(cx + ox / 2, 40, 58, rgb(255, 90, 170));
     compLaptop(now);
   } else if(m == "game"){
-    compEyes(cx - 26 + ox / 2, cx + 26 + ox / 2, 38 + oy / 3, 34, max(2, (int)(32 * k)), "game", gameColor(cs.detail));
+    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(32 * k)), "game", gameColor(cs.detail));
     compGameIcon(cs.detail, now);
   } else if(m == "osm"){
-    compEyes(cx - 26 + ox / 2, cx + 26 + ox / 2, 38 + oy / 3, 34, max(2, (int)(32 * k)), "normal", moodColor("osm"));
+    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(32 * k)), "normal", moodColor("osm"));
     compOsm(cs.detail == "edit", now);
   } else if(m == "work"){   // super concentrato
-    compEyes(42 + ox, 92 + ox, 82 + oy, 38, max(2, (int)(42 * k)), "work", moodColor("work"));
+    compEyes(cx - 52 + ox, cx + 8 + ox, 80 + oy, 46, max(2, (int)(50 * k)), "work", moodColor("work"));
     compThought(now);
-    if(now % 5000 < 1500) compSweat(10, 60 + (now % 5000) / 50);
+    if(now % 5000 < 1500) compSweat(cx - 88, 56 + (now % 5000) / 50);
   } else if(m == "ask"){
     int b = (int)(3 * sin(now / 120.0));
-    compEyes(44, 106, 66 + b, 50, 62, "ask", (now / 300) % 2 ? moodColor("ask") : rgb(255, 200, 120));
-    if((now / 400) % 2) compText("Ti cerco!", cx, 112, moodColor("ask"), top_center, &fonts::Font2);
+    compEyes(cx - 42, cx + 42, 64 + b, 62, 74, "ask", (now / 300) % 2 ? moodColor("ask") : rgb(255, 200, 120));
+    if((now / 400) % 2) compText("Ti cerco!", cx, 114, moodColor("ask"), top_center, &fonts::Font2);
   } else {
     int b = m == "done" ? -abs((int)(5 * sin(now / 150.0))) : 0;
-    int h = m == "sleepy" || m == "bored" ? 50 : 62;
-    compEyes(44 + ox, 106 + ox, 72 + oy + b, 48, max(2, (int)(h * k)), m, moodColor(m));
+    int h = m == "sleepy" || m == "bored" ? 60 : 76;
+    compEyes(cx - 46 + ox, cx + 46 + ox, 72 + oy + b, 62, max(2, (int)(h * k)), m, moodColor(m));
     if(m == "done") compText("Fatto!", cx, 116, moodColor("done"), top_center, &fonts::Font2);
   }
-  compPanel(now);
+  compMediaFooter(now);
+  compTopBar();   // per ultima: gli archetti delle cuffie non la coprono
   cc.pushSprite(0, 0);
 }

@@ -57,10 +57,11 @@ Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "[3/4] Installo le librerie Python (qualche minuto)..."
 & $python -m pip install --user --upgrade -q -r (Join-Path $dest "pc\requirements.txt")
 
-# 4) avvio con Windows e avvio
-Write-Host "[4/4] Avvio con Windows e avvio dell'app..."
+# 4) avvio con Windows, collegamento sul desktop e avvio
+Write-Host "[4/4] Avvio con Windows, collegamento sul desktop e avvio dell'app..."
 $launcher = Join-Path $dest "Desktop Companion.pyw"
 Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "DesktopCompanion" -Value "`"$pythonw`" `"$launcher`""
+& $python -c "import sys; sys.path.insert(0, r'$dest\pc'); import companion; companion.create_desktop_shortcut()"
 Start-Process $pythonw "`"$launcher`""
 
 Write-Host ""

@@ -54,6 +54,7 @@ STATUSLINE = PC_DIR / "statusline.py"
 LAUNCHER = ROOT / "Desktop Companion.pyw"
 LOG_FILE = ROOT / "companion.log"
 CONFIG_FILE = ROOT / "config.json"
+ICON_FILE = ROOT / "companion.ico"
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
 CLAUDE_CREDENTIALS = Path.home() / ".claude" / ".credentials.json"
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # lo stesso servizio di /usage
@@ -508,13 +509,27 @@ def open_port(device):
     return s
 
 
-def make_icon(color):
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+def make_icon(color, size=64):
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((2, 8, 62, 56), 12, fill=color)
-    d.rounded_rectangle((14, 20, 28, 42), 5, fill="white")
-    d.rounded_rectangle((36, 20, 50, 42), 5, fill="white")
+    s = size / 64  # disegnata su una griglia 64x64, scalata
+    d.rounded_rectangle((2 * s, 8 * s, 62 * s, 56 * s), 12 * s, fill=color)
+    d.rounded_rectangle((14 * s, 20 * s, 28 * s, 42 * s), 5 * s, fill="white")
+    d.rounded_rectangle((36 * s, 20 * s, 50 * s, 42 * s), 5 * s, fill="white")
     return img
+
+
+def create_desktop_shortcut():
+    """Collegamento "Desktop Companion" sul desktop, con l'icona del robottino:
+    serve a riavviare l'app se è stata chiusa."""
+    make_icon(ICON_COLORS["on"], 256).save(ICON_FILE, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
+    ps = ("$d = [Environment]::GetFolderPath('Desktop'); "
+          "$s = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Desktop Companion.lnk')); "
+          f"$s.TargetPath = '{PYTHONW}'; $s.Arguments = '\"{LAUNCHER}\"'; $s.WorkingDirectory = '{ROOT}'; "
+          f"$s.IconLocation = '{ICON_FILE}'; $s.Description = 'Avvia Desktop Companion'; $s.Save()")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True, timeout=30,
+                   creationflags=subprocess.CREATE_NO_WINDOW)
+    log.info("collegamento sul desktop creato")
 
 
 class Hub:
@@ -1056,6 +1071,10 @@ def build_menu(hub):
                          checked=lambda item: hub.personality.chatter),
         pystray.MenuItem("Reagisci a Claude Code", toggle_hooks, checked=lambda item: hooks_installed()),
         pystray.MenuItem("Avvia con Windows", toggle_autostart, checked=lambda item: autostart_enabled()),
+        pystray.MenuItem("Crea collegamento sul desktop", lambda: threading.Thread(
+            target=lambda: (create_desktop_shortcut(), hub.icon.notify("Collegamento creato sul desktop.",
+                                                                        "Desktop Companion")),
+            daemon=True).start()),
         pystray.MenuItem("Aggiornamenti", pystray.Menu(
             pystray.MenuItem(lambda item: "Aggiorna ora: " + hub.updates_text() if hub.updates else "Nessun aggiornamento",
                              lambda: hub.apply_updates(), enabled=lambda item: bool(hub.updates)),

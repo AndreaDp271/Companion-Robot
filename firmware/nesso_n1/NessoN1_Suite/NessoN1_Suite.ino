@@ -101,6 +101,10 @@ bool hit(const TBtn& b, int px, int py) { return px>=b.x && px<b.x+b.w && py>=b.
 
 // ---- pagine ----
 // PG_COMP = Desktop Companion (occhioni che reagiscono al PC), vedi Companion.ino
+void renderCompanion();
+void companionPollSerial();
+void companionKey(bool down);
+bool companionPcConnected();
 enum { PG_COMP, PG_DRAW, PG_LEVEL, PG_WIFI, PG_LORA, PG_IR, PG_TORCH, PG_CRONO, PG_GAME, PG_MOUSE, PG_GPS, PG_WEATHER, PG_SETUP, PG_COUNT };
 int page = PG_COMP;
 const char* TITLE[] = { "COMPANION", "DISEGNO", "BOLLA", "WIFI", "LORA", "IR", "TORCIA", "CRONO", "GIOCO", "MOUSE", "GPS", "METEO", "SETUP" };
