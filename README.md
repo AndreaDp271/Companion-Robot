@@ -15,9 +15,11 @@ Apri **PowerShell** e incolla:
 irm https://raw.githubusercontent.com/AndreaDp271/Companion-Robot/main/install.ps1 | iex
 ```
 
-Installa Python se manca, scarica l'app in `%LOCALAPPDATA%\DesktopCompanion`, installa le librerie, la fa partire con Windows e la avvia. Poi collega il robot o il Nesso N1 via USB.
+Installa Python se manca, scarica l'app in `%LOCALAPPDATA%\DesktopCompanion`, installa le librerie, la fa partire con Windows, crea il collegamento **Desktop Companion** sul desktop (per riavviarla) e la avvia. Poi collega il robot o il Nesso N1 via USB.
 
-Il Nesso N1 senza app sul PC mostra un QR code che porta qui.
+Se l'antivirus blocca il comando (alcuni bloccano qualsiasi comando PowerShell che scarica da internet): scarica la repo con **Code → Download ZIP**, estraila, fai clic destro su `install.ps1` → **Esegui con PowerShell**.
+
+Il Nesso N1 senza app sul PC mostra un QR code che porta qui; se è associato al PC via Bluetooth, tenendo premuto KEY2 apre questa pagina direttamente sul PC.
 
 ## Aggiornamenti
 
@@ -47,7 +49,10 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 
 ## Nesso N1: pagina COMPANION
 
-È la prima pagina della Suite (KEY1 scorre le altre come prima). Occhioni colorati che cambiano colore con l'umore, accessori a colori (cuffie arcobaleno, popcorn, icone dei giochi, mappa OSM, codice colorato) e sotto un pannello con consumi Claude, CPU/RAM/GPU, meteo e brano in riproduzione. Bip quando Claude ti cerca. KEY2 mostra il QR della repo.
+È la prima pagina della Suite (KEY1 scorre le altre come prima) ed è l'unica in orizzontale. Occhioni a tutto schermo che cambiano colore con l'umore, accessori a colori (cuffie arcobaleno, popcorn, icone dei giochi, mappa OSM, codice colorato), titolo e barra del tempo di musica e video in basso.
+
+- **KEY2 breve**: vista successiva, occhi → consumi Claude → orologio con CPU/RAM/GPU e meteo (dopo 20 s torna agli occhi)
+- **KEY2 lungo**: con l'app sul PC chiede di aggiornare tutto da GitHub; senza app apre questa pagina sul PC via tastiera Bluetooth (va associato "Nesso N1" nel Bluetooth di Windows; se era già associato come mouse, rimuovilo e riassocialo una volta) oppure mostra il QR
 
 ## Cosa mostra
 

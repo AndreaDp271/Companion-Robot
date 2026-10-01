@@ -522,13 +522,19 @@ def make_icon(color, size=64):
 def create_desktop_shortcut():
     """Collegamento "Desktop Companion" sul desktop, con l'icona del robottino:
     serve a riavviare l'app se è stata chiusa."""
+    # Niente PowerShell: gli antivirus scambiano "powershell -Command ... WScript.Shell" per un
+    # malware. Uso lo stesso oggetto COM direttamente da Python (comtypes, già tra le dipendenze).
+    import comtypes.client
     make_icon(ICON_COLORS["on"], 256).save(ICON_FILE, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
-    ps = ("$d = [Environment]::GetFolderPath('Desktop'); "
-          "$s = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Desktop Companion.lnk')); "
-          f"$s.TargetPath = '{PYTHONW}'; $s.Arguments = '\"{LAUNCHER}\"'; $s.WorkingDirectory = '{ROOT}'; "
-          f"$s.IconLocation = '{ICON_FILE}'; $s.Description = 'Avvia Desktop Companion'; $s.Save()")
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True, timeout=30,
-                   creationflags=subprocess.CREATE_NO_WINDOW)
+    shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
+    desktop = shell.SpecialFolders("Desktop")
+    link = shell.CreateShortcut(str(Path(desktop) / "Desktop Companion.lnk"))
+    link.TargetPath = str(PYTHONW)
+    link.Arguments = f'"{LAUNCHER}"'
+    link.WorkingDirectory = str(ROOT)
+    link.IconLocation = str(ICON_FILE)
+    link.Description = "Avvia Desktop Companion"
+    link.Save()
     log.info("collegamento sul desktop creato")
 
 

@@ -21,8 +21,8 @@
  *
  *  La faccia usa tutto lo schermo; consumi, CPU/RAM/GPU e meteo sono nelle viste di KEY2.
  *  KEY2 breve = vista successiva (occhi -> consumi Claude -> orologio), come il tasto del RP2040.
- *  KEY2 lungo = aggiornamento dal PC; senza app sul PC la installa via tastiera Bluetooth
- *  (o mostra il QR per installarla a mano).
+ *  KEY2 lungo = aggiornamento dal PC; senza app sul PC apre la pagina GitHub con le istruzioni
+ *  via tastiera Bluetooth (o mostra il QR).
  */
 
 #define COMP_REPO_URL   "https://github.com/AndreaDp271/Companion-Robot"
@@ -64,9 +64,10 @@ void renderCompanion();
 // ---- installazione dell'app via tastiera Bluetooth ----
 // L'ESP32-C6 non ha USB OTG (solo USB seriale/JTAG), quindi non può fare da tastiera USB:
 // usa la tastiera Bluetooth (report 2 dello stesso dispositivo HID del mouse). Con il Nesso
-// associato a Windows, apre Esegui (Win+R) e scrive il comando di installazione. Ogni carattere
-// è scritto con Alt + codice sul tastierino numerico, così funziona con qualsiasi layout.
-#define COMP_INSTALL_CMD "powershell -NoExit -Command \"irm https://raw.githubusercontent.com/AndreaDp271/Companion-Robot/main/install.ps1|iex\""
+// associato a Windows, apre Esegui (Win+R) e scrive l'indirizzo della repo: si apre il browser
+// con le istruzioni. Niente comandi PowerShell: gli antivirus li bloccherebbero come sospetti.
+// Ogni carattere è scritto con Alt + codice sul tastierino numerico: funziona con qualsiasi layout.
+#define COMP_INSTALL_CMD COMP_REPO_URL
 int compTyping = -1;          // avanzamento della scrittura (%), -1 = non sta scrivendo
 uint32_t compInstallAt = 0;   // quando ha finito di scrivere il comando
 const uint8_t KEYPAD[10] = {0x62, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x61};   // 0..9 del tastierino
@@ -538,8 +539,8 @@ void compInstall(uint32_t now){
   } else if(compKeyboardReady()){
     compText("Bluetooth collegato!", x, CTOP + 24, rgb(80, 220, 110));
     compText("Tieni premuto KEY2:", x, CTOP + 36, TFT_WHITE);
-    compText("scrivo io il comando", x, CTOP + 46, TFT_WHITE);
-    compText("che installa l'app", x, CTOP + 56, TFT_WHITE);
+    compText("apro sul PC la pagina", x, CTOP + 46, TFT_WHITE);
+    compText("con le istruzioni", x, CTOP + 56, TFT_WHITE);
   } else {
     compText("Associa 'Nesso N1'", x, CTOP + 24, TFT_WHITE);
     compText("nel Bluetooth di", x, CTOP + 34, TFT_WHITE);
@@ -558,9 +559,9 @@ void compTypingScreen(uint32_t now){
   cc.fillRect(0, CTOP, CW, CH - CTOP, COL_BG);
   bool done = compTyping < 0;
   compEyes(80, 160, 56, 40, 46, done ? "happy" : "work", done ? moodColor("done") : moodColor("work"));
-  compText(done ? "Installazione avviata!" : "Scrivo il comando...", CW / 2, 88, TFT_WHITE, top_center, &fonts::Font2);
+  compText(done ? "Pagina aperta sul PC!" : "Apro la pagina GitHub...", CW / 2, 88, TFT_WHITE, top_center, &fonts::Font2);
   if(!done) compBar(20, 110, CW - 40, 8, compTyping, moodColor("work"));
-  else compText("guarda il PC: finestra PowerShell", CW / 2, 110, COL_MUTED, top_center);
+  else compText("segui le istruzioni nel browser", CW / 2, 110, COL_MUTED, top_center);
 }
 
 // ---- pagina ----
