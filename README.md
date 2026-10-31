@@ -56,6 +56,12 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 - **KEY2 breve**: vista successiva, occhi → consumi Claude → orologio con CPU/RAM/GPU e meteo (dopo 20 s torna agli occhi)
 - **KEY2 lungo**: con l'app sul PC chiede di aggiornare tutto da GitHub; senza app apre questa pagina sul PC via tastiera Bluetooth (va associato "Nesso N1" nel Bluetooth di Windows; se era già associato come mouse, rimuovilo e riassocialo una volta) oppure mostra il QR
 
+## Il personaggio
+
+Il companion ha due occhioni, due sopracciglia e una bocca: l'umore si legge da tutti e tre (sorriso, "o" di stupore, linguetta quando è concentrato, sbadiglio quando si annoia, canta con la musica). Ogni scena è disegnata per il Nesso a colori e, più semplice, per l'OLED in bianco e nero. Quando lavora Claude Code al suo posto c'è la mascotte arancione.
+
+Le scene (giochi, musica, video, OpenStreetMap, meteo, feste) sono in `firmware/nesso_n1/NessoN1_Suite/Scenes.ino` e in `firmware/rp2040/main.py`; l'anteprima animata con tutte le scene è stata fatta come pagina web.
+
 ## Cosa mostra
 
 | Situazione | Robot | LED |
@@ -71,7 +77,7 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 | editor di OSM (iD su osm.org, o JOSM) | disegna un edificio nodo per nodo | arancione |
 | Lontano dal PC 5 minuti | annoiato, palpebre pesanti | grigio |
 | Notte (00:30-5:00) | assonnato | blu scuro |
-| Gioco a schermo intero o controller in uso | gioca col gamepad | rosso/blu |
+| Gioco a schermo intero o controller in uso | una scena per gioco (Minecraft, Sea of Thieves, Cities: Skylines, Euro Truck, Isonzo, The Last of Us), altrimenti un giochino a piattaforme sul monitor | rosso/blu |
 | Normale | in alto ruotano ora e CPU, GPU e temperatura, consumi Claude; umore in base a CPU e GPU | verde / azzurro / rosso |
 | PC spento o app chiusa | dorme | blu tenue |
 

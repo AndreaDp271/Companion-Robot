@@ -314,168 +314,10 @@ void compLook(uint32_t now, const String& m){
   fx.lx += (fx.tx - fx.lx) * sp; fx.ly += (fx.ty - fx.ly) * sp;
 }
 
-// ---- occhi ----
-void drawHeart(int cx, int cy, int s, uint16_t c){
-  int r = s / 4;
-  cc.fillCircle(cx - r, cy - r / 2, r, c);
-  cc.fillCircle(cx + r, cy - r / 2, r, c);
-  cc.fillTriangle(cx - 2 * r, cy - r / 3, cx + 2 * r, cy - r / 3, cx, cy + 2 * r, c);
-}
-// forma base colorata + palpebre/effetti disegnati col colore di sfondo
-void compEye(int cx, int cy, int w, int h, const String& m, int side, uint16_t col){
-  const uint16_t bg = TFT_BLACK;
-  if(m == "love" && h > 10){ drawHeart(cx, cy, w, col); return; }
-  if((m == "surprised" || m == "ask") && h > 10){
-    cc.fillEllipse(cx, cy, w / 2, h / 2, col);
-    cc.fillCircle(cx, cy, w / 5, bg);
-    cc.fillCircle(cx - w / 12, cy - w / 12, max(2, w / 14), TFT_WHITE);
-    return;
-  }
-  int x = cx - w / 2, y = cy - h / 2;
-  cc.fillRoundRect(x, y, w, h, min(12, min(w, h) / 2), col);
-  if(h <= 10) return;
-  if(m == "happy" || m == "done" || m == "excited"){            // occhio ad arco ^
-    cc.fillEllipse(cx, y + h + 6, w / 2 + 6, h / 2 + 2, bg);
-  } else if(m == "stress" || m == "game" || m == "work"){      // sopracciglia aggrottate
-    if(m == "work") cc.fillRect(x, y, w, h * 3 / 10, bg);
-    if(side < 0) cc.fillTriangle(x, y - 1, x + w, y - 1, x + w, y + h / 2, bg);
-    else         cc.fillTriangle(x, y - 1, x + w, y - 1, x, y + h / 2, bg);
-  } else if(m == "sad" || m == "sleepy"){                       // palpebra che scende verso l'esterno
-    if(side < 0) cc.fillTriangle(x, y - 1, x + w, y - 1, x, y + h * 6 / 10, bg);
-    else         cc.fillTriangle(x, y - 1, x + w, y - 1, x + w, y + h * 6 / 10, bg);
-    if(m == "sleepy") cc.fillRect(x, y, w, h * 35 / 100, bg);
-  } else if(m == "bored"){
-    cc.fillRect(x, y, w, h * 55 / 100, bg);
-  } else {                                                       // riflesso: occhi più vivi
-    cc.fillCircle(x + w / 4, y + h / 5 + 2, max(2, w / 9), rgb(230, 250, 255));
-  }
-}
-void compEyes(int cx1, int cx2, int cy, int w, int h, const String& m, uint16_t col){
-  compEye(cx1, cy, w, h, m, -1, col);
-  compEye(cx2, cy, w, h, m, 1, col);
-}
-
-// ---- accessori delle scene (area occhi: x 0..150, y 14..135) ----
+// ---- goccia di sudore (la usa la mascotte di Claude) ----
 void compSweat(int x, int y){
   uint16_t c = rgb(120, 200, 255);
   cc.fillCircle(x, y, 3, c); cc.fillTriangle(x - 3, y - 1, x + 3, y - 1, x, y - 8, c);
-}
-void compHeadphones(int cx, int cy, int half, uint16_t cup){
-  cc.fillArc(cx, cy, half, half - 4, 180, 360, rgb(90, 90, 100));   // archetto
-  cc.fillRoundRect(cx - half - 6, cy - 12, 12, 26, 5, cup);
-  cc.fillRoundRect(cx + half - 6, cy - 12, 12, 26, 5, cup);
-  cc.fillRect(cx - half - 1, cy - 8, 2, 18, rgb(40, 40, 50));
-  cc.fillRect(cx + half - 1, cy - 8, 2, 18, rgb(40, 40, 50));
-}
-void compNote(int x, int y, uint16_t c){
-  cc.fillCircle(x, y, 3, c); cc.fillRect(x + 2, y - 10, 2, 10, c); cc.fillTriangle(x + 3, y - 10, x + 8, y - 7, x + 3, y - 5, c);
-}
-void compLaptop(uint32_t now){   // VS Code: portatile con codice colorato
-  const int X = XO;
-  cc.fillRoundRect(X + 20, 64, 111, 58, 3, rgb(60, 60, 70));
-  cc.fillRect(X + 23, 67, 105, 52, rgb(30, 30, 40));
-  const uint16_t cols[] = { rgb(200, 120, 255), rgb(120, 200, 255), rgb(240, 200, 90), rgb(130, 220, 130), rgb(230, 110, 110) };
-  int scroll = (now / 600) % 7;
-  for(int i = 0; i < 7; i++){
-    int seed = (i + scroll) * 37;
-    int ind = (seed % 3) * 6, len1 = 10 + seed % 22, len2 = 8 + (seed / 3) % 28;
-    cc.fillRect(X + 28 + ind, 71 + i * 7, len1, 3, cols[seed % 5]);
-    if(28 + ind + len1 + 4 + len2 < 125) cc.fillRect(X + 28 + ind + len1 + 4, 71 + i * 7, len2, 3, cols[(seed / 5) % 5]);
-  }
-  if((now / 300) % 2) cc.fillRect(X + 28 + ((now / 600) % 6) * 14, 113, 6, 3, TFT_WHITE);   // cursore
-  cc.fillRoundRect(X + 10, 122, 131, 6, 2, rgb(150, 150, 160));
-}
-void compPopcorn(int x, int y, uint32_t now){
-  cc.fillTriangle(x, y, x + 26, y, x + 22, y + 30, rgb(230, 50, 50));
-  cc.fillTriangle(x, y, x + 22, y + 30, x + 4, y + 30, rgb(230, 50, 50));
-  for(int i = 0; i < 3; i++) cc.fillRect(x + 4 + i * 8, y + 2, 3, 27, TFT_WHITE);
-  const int8_t k[][2] = {{3, -2}, {10, -5}, {17, -3}, {23, -1}, {13, 0}};
-  for(auto& p : k) cc.fillCircle(x + p[0], y + p[1], 4, rgb(255, 240, 190));
-  float t = (now % 1400) / 1400.0f;   // chicco che salta
-  cc.fillCircle(x + 14 - (int)(18 * t), y - 6 - (int)(34 * t - 36 * t * t), 3, rgb(255, 240, 190));
-}
-void compGameIcon(const String& g, uint32_t now){   // icona del gioco sotto gli occhi
-  int cx = FACE_W / 2, cy = 98;
-  if(g == "minecraft"){
-    int s = 32, x = cx - s / 2, y = cy - s / 2 + (int)(2 * sin(now / 300.0));
-    cc.fillRect(x, y, s, s, rgb(134, 96, 67)); cc.fillRect(x, y, s, 8, rgb(95, 180, 60));
-    for(int i = 0; i < 12; i++) cc.fillRect(x + (i * 7) % (s - 3), y + 10 + (i * 11) % (s - 13), 3, 3, rgb(100, 70, 50));
-    for(int i = 0; i < 6; i++) cc.fillRect(x + i * 5, y + 7, 3, 3 + (i % 2) * 2, rgb(95, 180, 60));
-  } else if(g == "sot"){
-    int b = (int)(3 * sin(now / 380.0));
-    cc.fillRect(cx + 2, cy - 24 + b, 2, 24, rgb(120, 80, 40));
-    cc.fillRect(cx - 12, cy - 22 + b, 28, 14, rgb(240, 240, 230));
-    cc.fillCircle(cx + 2, cy - 15 + b, 3, TFT_BLACK);
-    cc.fillTriangle(cx - 30, cy + b, cx + 30, cy + b, cx + 21, cy + 10 + b, rgb(140, 90, 45));
-    cc.fillTriangle(cx - 30, cy + b, cx + 21, cy + 10 + b, cx - 21, cy + 10 + b, rgb(140, 90, 45));
-    for(int x = 0; x < FACE_W; x += 3) cc.fillRect(x, cy + 13 + (int)(2 * sin(x / 7.0 + now / 220.0)), 3, 3, rgb(40, 140, 220));
-  } else if(g == "cities"){
-    const int8_t hs[] = {20, 32, 24, 38, 28, 18, 26};
-    for(int i = 0; i < 7; i++){
-      int x = XO + 8 + i * 20, h = hs[i], y = cy + 26 - h;
-      cc.fillRect(x, y, 16, h, rgb(110, 115, 130));
-      for(int wy = y + 3; wy < cy + 23; wy += 5) for(int wx = x + 2; wx < x + 14; wx += 4)
-        cc.fillRect(wx, wy, 2, 2, ((wx * 7 + wy * 13 + now / 900) % 3) ? rgb(250, 210, 60) : rgb(50, 50, 60));
-    }
-  } else if(g == "ets2"){
-    for(int x = -((int)(now / 20) % 16); x < FACE_W; x += 16) cc.fillRect(x, cy + 24, 8, 2, TFT_WHITE);
-    cc.fillRect(XO + 22, cy - 14, 64, 28, rgb(230, 230, 235));
-    cc.fillRoundRect(XO + 88, cy - 8, 34, 22, 4, rgb(255, 140, 30));
-    cc.fillRect(XO + 97, cy - 5, 16, 8, rgb(120, 200, 255));
-    int sp = (now / 60) % 4;
-    for(int wx : {32, 50, 74, 98, 114}){ wx += XO; cc.fillCircle(wx, cy + 17, 5, rgb(40, 40, 40)); cc.fillCircle(wx + (sp == 1 ? 2 : sp == 3 ? -2 : 0), cy + 17 + (sp == 0 ? -2 : sp == 2 ? 2 : 0), 1, rgb(200, 200, 200)); }
-  } else if(g == "isonzo"){
-    uint32_t t = now % 3000;
-    if(t < 300) cc.fillCircle(XO + 24, cy - 10, 10 + t / 20, rgb(255, 150, 40));
-    cc.fillArc(cx, cy + 12, 28, 0, 180, 360, rgb(110, 110, 70));
-    cc.fillRect(cx - 36, cy + 11, 72, 4, rgb(90, 90, 55));
-    cc.fillRect(cx - 1, cy - 20, 2, 6, rgb(90, 90, 55));
-  } else if(g == "tlou"){
-    float a = -0.25f + 0.3f * sin(now / 1400.0);
-    int ox = XO + 14, oy = cy + 8;
-    for(int r = 0; r < 130; r += 2){
-      int y1 = oy + (int)(r * tan(a - 0.3f)), y2 = oy + (int)(r * tan(a + 0.3f));
-      int top = max(y1, 66), bot = min(y2, CH);
-      if(bot > top) cc.drawFastVLine(ox + r, top, bot - top, rgb(max(10, 80 - r / 2), max(10, 75 - r / 2), 20));
-    }
-    int zx = XO + 130 - (int)((now / 40) % 90);   // clicker che avanza
-    uint16_t z = rgb(150, 170, 110);
-    cc.fillCircle(zx, cy - 8, 5, z); cc.fillRect(zx - 3, cy - 3, 7, 16, z);
-    for(int d = -6; d <= 6; d += 4) cc.drawLine(zx, cy - 8, zx + d, cy - 15, z);
-    cc.fillRect(ox - 8, oy - 3, 10, 6, rgb(200, 200, 210));
-  } else {   // gioco sconosciuto: gamepad
-    cc.fillRoundRect(cx - 34, cy - 13, 68, 28, 12, rgb(70, 70, 85));
-    cc.fillRect(cx - 24, cy - 2, 14, 4, TFT_WHITE); cc.fillRect(cx - 19, cy - 7, 4, 14, TFT_WHITE);
-    const uint16_t bc[] = {rgb(80, 220, 110), rgb(255, 70, 60), rgb(80, 150, 255), rgb(250, 210, 60)};
-    const int8_t bp[][2] = {{0, -6}, {6, 0}, {0, 6}, {-6, 0}};
-    int pressed = (now / 200) % 4;
-    for(int i = 0; i < 4; i++) cc.fillCircle(cx + 19 + bp[i][0], cy + bp[i][1], i == pressed ? 2 : 3, bc[i]);
-  }
-}
-void compOsm(bool edit, uint32_t now){   // OpenStreetMap: mappetta colorata
-  int x0 = 4, y0 = 64, w = FACE_W - 8, h = 66;
-  cc.fillRect(x0, y0, w, h, rgb(242, 239, 233));                    // sfondo mappa OSM
-  cc.fillRoundRect(10, y0 + 6, 34, 22, 4, rgb(173, 209, 158));       // parco
-  for(int x = x0; x < x0 + w; x++) cc.fillRect(x, y0 + 42 + (int)(5 * sin(x / 12.0)), 1, 6, rgb(170, 211, 223));   // fiume
-  cc.fillRect(x0, y0 + 30, w, 5, rgb(247, 250, 191)); cc.drawRect(x0, y0 + 30, w, 5, rgb(200, 180, 120));   // strada
-  cc.fillRect(XO + 58, y0, 4, h, TFT_WHITE); cc.drawRect(XO + 58, y0, 4, h, rgb(190, 190, 190));
-  cc.fillRoundRect(XO + 150, y0 + 40, 30, 16, 4, rgb(173, 209, 158));   // secondo parco
-  if(!edit){
-    int py = y0 + 12 - abs((int)(4 * sin(now / 200.0)));   // segnaposto che rimbalza
-    cc.fillTriangle(XO + 100, py + 4, XO + 110, py + 4, XO + 105, py + 16, rgb(230, 60, 60));
-    cc.fillCircle(XO + 105, py + 3, 6, rgb(230, 60, 60)); cc.fillCircle(XO + 105, py + 3, 2, TFT_WHITE);
-  } else {   // modifica: edificio disegnato nodo per nodo
-    const uint8_t pts[][2] = {{78, 4}, {130, 4}, {130, 26}, {104, 26}, {104, 40}, {78, 40}};
-    int n = (now / 450) % 10;
-    uint16_t o = rgb(255, 140, 30);
-    if(n > 6){ cc.fillRect(XO + 79, y0 + 5, 51, 21, rgb(255, 200, 150)); cc.fillRect(XO + 79, y0 + 26, 25, 14, rgb(255, 200, 150)); }
-    for(int i = 1; i < min(n + 1, 7); i++){
-      int a = i - 1, b = i % 6;
-      cc.drawLine(XO + pts[a][0], y0 + pts[a][1], XO + pts[b][0], y0 + pts[b][1], o);
-      cc.drawLine(XO + pts[a][0], y0 + pts[a][1] + 1, XO + pts[b][0], y0 + pts[b][1] + 1, o);
-    }
-    for(int i = 0; i < min(n + 1, 6); i++){ cc.fillRect(XO + pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, TFT_WHITE); cc.drawRect(XO + pts[i][0] - 2, y0 + pts[i][1] - 2, 5, 5, o); }
-  }
 }
 void compWxIcon(const String& k, int cx, int cy, uint32_t now){   // meteo
   if(k == "sun"){ cc.fillCircle(cx, cy, 5, rgb(255, 210, 40)); for(int i = 0; i < 8; i++){ float a = i * 0.785f + now / 1500.0f; cc.drawLine(cx + 7 * cos(a), cy + 7 * sin(a), cx + 9 * cos(a), cy + 9 * sin(a), rgb(255, 210, 40)); } }
@@ -489,23 +331,6 @@ void compWxIcon(const String& k, int cx, int cy, uint32_t now){   // meteo
   else if(k == "cold"){ uint16_t c = rgb(120, 200, 255); cc.drawFastVLine(cx, cy - 7, 14, c); cc.drawFastHLine(cx - 7, cy, 14, c); cc.drawLine(cx - 5, cy - 5, cx + 5, cy + 5, c); cc.drawLine(cx - 5, cy + 5, cx + 5, cy - 5, c); }
   else if(k == "hot"){ cc.fillCircle(cx, cy, 6, rgb(255, 120, 30)); }
   else { cc.fillCircle(cx - 3, cy, 4, rgb(190, 195, 210)); cc.fillCircle(cx + 3, cy - 1, 5, rgb(190, 195, 210)); }   // nuvole/nebbia
-}
-
-// ---- nuvoletta con la frase ----
-void compSpeech(const String& emo, const String& text, float k, uint32_t now){
-  cc.fillRoundRect(3, CTOP + 3, FACE_W - 6, 40, 8, TFT_WHITE);
-  cc.fillTriangle(FACE_W / 2 - 12, CTOP + 41, FACE_W / 2 + 4, CTOP + 41, FACE_W / 2 - 10, CTOP + 51, TFT_WHITE);
-  cc.setTextColor(TFT_BLACK, TFT_WHITE); cc.setTextDatum(middle_center); cc.setTextFont(&fonts::Font2);
-  String l1 = text, l2 = "";   // a capo sulla parola, max 2 righe da ~26 caratteri
-  if(text.length() > 26){
-    int cut = text.lastIndexOf(' ', 26); if(cut < 0) cut = 26;
-    l1 = text.substring(0, cut); l2 = text.substring(cut + (text[cut] == ' ' ? 1 : 0));
-    if(l2.length() > 27) l2 = l2.substring(0, 27);
-  }
-  if(l2.length()){ cc.drawString(l1.c_str(), FACE_W / 2, CTOP + 14); cc.drawString(l2.c_str(), FACE_W / 2, CTOP + 32); }
-  else cc.drawString(l1.c_str(), FACE_W / 2, CTOP + 23);
-  int bounce = (emo == "excited" || emo == "love" || emo == "happy") ? -abs((int)(3 * sin(now / 140.0))) : 0;
-  compEyes(FACE_W / 2 - 32, FACE_W / 2 + 32, 98 + bounce, 40, max(2, (int)(36 * k)), emo, moodColor(emo));
 }
 
 // ---- barre e testi comuni ----
@@ -607,243 +432,10 @@ void compMediaFooter(uint32_t now){
   }
 }
 
-// ---- animazioni meteo (a colori) ----
-void compSunglasses(int cx, int cy){
-  for(int s = -1; s <= 1; s += 2){
-    int x = cx + s * 46;
-    cc.fillRoundRect(x - 32, cy - 20, 64, 40, 12, TFT_WHITE);
-    cc.fillRoundRect(x - 29, cy - 17, 58, 34, 10, rgb(20, 20, 30));
-    cc.drawLine(x - 20, cy + 8, x - 8, cy - 8, rgb(150, 150, 170));   // riflessi
-    cc.drawLine(x - 14, cy + 11, x - 2, cy - 5, rgb(150, 150, 170));
-  }
-  cc.fillRect(cx - 14, cy - 12, 28, 4, TFT_WHITE);   // ponte
-  cc.fillRect(0, cy - 14, cx - 78, 3, TFT_WHITE); cc.fillRect(cx + 78, cy - 14, CW - cx - 78, 3, TFT_WHITE);   // stanghette
-}
-void compSunCorner(int x, int y, uint32_t now){
-  uint16_t c = rgb(255, 210, 40);
-  cc.fillCircle(x, y, 9, c);
-  for(int i = 0; i < 8; i++){ float a = i * 0.785f + now / 1500.0f; cc.drawLine(x + 12 * cos(a), y + 12 * sin(a), x + 16 * cos(a), y + 16 * sin(a), c); }
-}
-void compUmbrella(int cx, uint32_t now){
-  const int top = 18, rim = 46;
-  cc.fillEllipse(cx, rim, 80, rim - top, rgb(230, 60, 70));         // tela rossa
-  cc.fillEllipse(cx, rim, 40, rim - top, rgb(255, 210, 60));        // spicchio giallo al centro
-  cc.fillEllipse(cx, rim, 14, rim - top, rgb(230, 60, 70));
-  cc.fillRect(cx - 82, rim, 164, rim - top + 2, TFT_BLACK);          // taglio: resta la metà di sopra
-  for(int x = cx - 70; x <= cx + 70; x += 20) cc.fillCircle(x, rim, 10, TFT_BLACK);   // bordo a festoni
-  cc.fillRect(cx - 1, top - 6, 3, 6, rgb(200, 200, 210));           // puntale
-  cc.fillRect(cx - 1, rim, 3, 70, rgb(200, 200, 210));              // manico tra gli occhi
-  cc.drawArc(cx - 6, rim + 70, 6, 4, 0, 180, rgb(200, 200, 210));
-  for(int i = 0; i < 14; i++){                                       // pioggia intorno
-    int x = (i * 37) % CW;
-    bool under = x > cx - 84 && x < cx + 84;
-    int y = under ? CTOP + (int)((now / 25 + i * 9) % 12) - 6 : CTOP + (int)((now / 22 + i * 17) % 130);
-    cc.drawFastVLine(x, y, 6, rgb(80, 150, 255));
-  }
-}
 // ---- feste: il PC manda "F <festa>", l'animazione si alterna con quella del meteo ----
 bool compIsFeast(const String& k){
   return k == "halloween" || k == "natale" || k == "capodanno" || k == "befana" || k == "sanvalentino"
       || k == "carnevale" || k == "pasqua" || k == "italia" || k == "ferragosto";
-}
-void compPumpkin(int x, int y){
-  cc.fillEllipse(x, y, 15, 11, rgb(255, 130, 20));
-  cc.drawEllipse(x, y, 6, 11, rgb(200, 90, 10));
-  cc.fillRect(x - 2, y - 15, 4, 5, rgb(60, 160, 60));
-  uint16_t lit = rgb(255, 230, 90);
-  cc.fillTriangle(x - 9, y - 1, x - 3, y - 1, x - 6, y - 6, lit);
-  cc.fillTriangle(x + 3, y - 1, x + 9, y - 1, x + 6, y - 6, lit);
-  cc.fillRect(x - 7, y + 3, 14, 3, lit);
-}
-void compBat(int x, int y, uint32_t now){
-  uint16_t c = rgb(40, 20, 60); bool up = (now / 150) % 2;
-  cc.fillCircle(x, y, 3, c);
-  cc.fillTriangle(x - 2, y, x - 13, up ? y - 6 : y + 4, x - 6, y + 2, c);
-  cc.fillTriangle(x + 2, y, x + 13, up ? y - 6 : y + 4, x + 6, y + 2, c);
-}
-void compBurst(int cx, int cy, float t, uint16_t c){   // fuoco d'artificio, t da 0 a 1
-  int r1 = 3 + 18 * t, r2 = 8 + 24 * t;
-  for(int i = 0; i < 12; i++){
-    float a = i * 3.14159f / 6;
-    cc.drawLine(cx + r1 * cos(a), cy + r1 * sin(a), cx + r2 * cos(a), cy + r2 * sin(a), c);
-    cc.fillCircle(cx + r2 * cos(a), cy + r2 * sin(a), 1, c);
-  }
-}
-void compEgg(int x, int y, uint16_t a, uint16_t b){
-  cc.fillEllipse(x, y, 9, 12, a);
-  for(int dx = -8; dx <= 6; dx += 4) cc.fillTriangle(x + dx, y, x + dx + 2, y - 3, x + dx + 4, y, b);
-  cc.fillRect(x - 8, y + 4, 17, 2, b);
-}
-void compFestAnim(const String& kind, uint32_t now, float k, int ox){
-  const int cx = CW / 2, cy = 78;
-  float t = (now % 1600) / 1600.0f;
-  String m = "normal"; uint16_t col = moodColor("normal"); int h = 66, oy = 0;
-
-  if(kind == "halloween"){   // notte viola, cappello da strega, zucche e pipistrelli
-    cc.fillRect(0, CTOP, CW, CH - CTOP, rgb(25, 8, 40));
-    cc.fillCircle(CW - 28, CTOP + 22, 14, rgb(250, 240, 200));
-    for(int i = 0; i < 3; i++) compBat((now / 25 + i * 90) % (CW + 40) - 20, CTOP + 14 + i * 9 + (int)(5 * sin(now / 200.0 + i)), now + i * 70);
-    m = "stress"; col = rgb(255, 140, 20); oy = 8; h = 56;
-  } else if(kind == "natale"){
-    col = rgb(150, 230, 255); oy = 8; h = 56;
-    for(int i = 0; i < 20; i++){
-      int x = (i * 37 + (int)(8 * sin(now / 500.0 + i))) % CW, y = CTOP + (int)((now / 45 + i * 29) % 125);
-      cc.drawFastHLine(x - 2, y, 5, TFT_WHITE); cc.drawFastVLine(x, y - 2, 5, TFT_WHITE);
-    }
-  } else if(kind == "capodanno"){
-    cc.fillRect(0, CTOP, CW, CH - CTOP, rgb(5, 5, 25));
-    const int fx[] = {30, 210, 120, 70, 175}, fy[] = {40, 45, 30, 110, 105};
-    for(int i = 0; i < 5; i++){
-      float tt = fmod(t + i / 5.0f, 1.0f);
-      if(tt < 0.8f) compBurst(fx[i], fy[i], tt / 0.8f, hueColor(i * 72 + now / 20));
-    }
-    col = rgb(255, 220, 80);
-  } else if(kind == "befana"){
-    cc.fillRect(0, CTOP, CW, CH - CTOP, rgb(10, 12, 45));
-    m = "surprised"; col = rgb(220, 200, 255);
-  } else if(kind == "sanvalentino"){
-    m = "love"; col = rgb(255, 60, 110);
-  } else if(kind == "carnevale"){
-    for(int i = 0; i < 30; i++){   // coriandoli
-      int x = (i * 41 + (int)(6 * sin(now / 300.0 + i))) % CW, y = CTOP + (int)((now / 35 + i * 13) % 125);
-      cc.fillRect(x, y, 3, 3, hueColor(i * 47));
-    }
-    for(int s = -1; s <= 1; s += 2){   // mascherina dorata e viola
-      cc.fillRoundRect(cx + s * 46 - 38, cy - 34, 76, 64, 20, rgb(240, 190, 40));
-      cc.fillRoundRect(cx + s * 46 - 34, cy - 30, 68, 56, 17, rgb(130, 40, 170));
-    }
-    cc.fillRect(cx - 10, cy - 20, 20, 10, rgb(240, 190, 40));
-    col = TFT_WHITE; h = 44;
-  } else if(kind == "pasqua"){
-    col = rgb(170, 240, 150); oy = 10; h = 54;
-  } else if(kind == "italia"){   // tricolore che sventola dietro agli occhi
-    for(int x = 0; x < CW; x += 2){
-      int dy = (int)(4 * sin(now / 200.0 + x / 20.0));
-      uint16_t c = x < 80 ? rgb(0, 140, 70) : (x < 160 ? rgb(240, 240, 240) : rgb(210, 40, 50));
-      cc.fillRect(x, CTOP + 6 + dy, 2, CH - CTOP - 12, c);
-    }
-    col = rgb(25, 25, 35);
-  } else if(kind == "ferragosto"){
-    compSunglasses(cx + ox / 2, cy);
-    compSunCorner(CW - 22, CTOP + 18, now);
-    int by = 112 - abs((int)(16 * sin(now / 220.0)));   // pallone da spiaggia che rimbalza
-    cc.fillCircle(24, by, 11, TFT_WHITE);
-    cc.fillArc(24, by, 11, 0, 0, 60, rgb(230, 50, 60)); cc.fillArc(24, by, 11, 0, 120, 180, rgb(40, 120, 230)); cc.fillArc(24, by, 11, 0, 240, 300, rgb(250, 200, 40));
-    compText("Buon Ferragosto!", cx, CH - 18, rgb(255, 210, 60), top_center, &fonts::Font2);
-    return;
-  }
-
-  compEyes(cx - 46 + ox / 2, cx + 46 + ox / 2, cy + oy, kind == "carnevale" ? 44 : 56, max(2, (int)(h * k)), m, col);
-
-  if(kind == "halloween"){
-    uint16_t hat = rgb(70, 30, 110);
-    cc.fillTriangle(cx - 34, CTOP + 34, cx + 34, CTOP + 34, cx + 22, CTOP - 4, hat);
-    cc.fillRoundRect(cx - 70, CTOP + 31, 140, 8, 3, hat);
-    cc.fillRect(cx - 30, CTOP + 26, 60, 5, rgb(255, 140, 20));
-    compPumpkin(22, 112); compPumpkin(CW - 22, 112);
-    if((now / 500) % 2) compText("Buuu!", cx, CH - 18, rgb(255, 140, 20), top_center, &fonts::Font2);
-  } else if(kind == "natale"){   // cappello di Babbo Natale, alberello con le lucine
-    uint16_t red = rgb(220, 30, 40);
-    cc.fillTriangle(cx - 60, CTOP + 30, cx + 50, CTOP + 30, cx + 78, CTOP + 4, red);
-    cc.fillCircle(cx + 80, CTOP + 5, 7, TFT_WHITE);
-    cc.fillRoundRect(cx - 66, CTOP + 26, 124, 11, 5, TFT_WHITE);
-    int tx = 24, ty = 72;
-    cc.fillTriangle(tx, ty - 34, tx - 16, ty, tx + 16, ty, rgb(30, 150, 60));
-    cc.fillTriangle(tx, ty - 18, tx - 20, ty + 22, tx + 20, ty + 22, rgb(30, 150, 60));
-    cc.fillRect(tx - 3, ty + 22, 6, 8, rgb(120, 70, 30));
-    for(int i = 0; i < 6; i++) cc.fillCircle(tx - 12 + (i * 7) % 24, ty - 8 + i * 5, 2, hueColor(i * 60 + now / 5));
-    cc.fillCircle(tx, ty - 35, 3, rgb(255, 220, 60));
-  } else if(kind == "capodanno"){   // cappellino da festa
-    cc.fillTriangle(cx - 16, CTOP + 34, cx + 16, CTOP + 34, cx, CTOP + 2, rgb(80, 160, 255));
-    for(int i = 0; i < 3; i++) cc.fillCircle(cx - 6 + i * 6, CTOP + 26 - i * 9, 2, rgb(255, 220, 60));
-    cc.fillCircle(cx, CTOP + 2, 4, rgb(255, 80, 160));
-    if((now / 400) % 2) compText("Buon anno!", cx, CH - 18, rgb(255, 220, 80), top_center, &fonts::Font2);
-  } else if(kind == "befana"){   // la Befana sulla scopa attraversa il cielo
-    int left = WX_ANIM_MS - (int)(wxa.until - now);
-    int x = CW + 40 - left * (CW + 90) / WX_ANIM_MS, y = CTOP + 18 + (int)(4 * sin(now / 200.0));
-    cc.drawWideLine(x - 26, y + 10, x + 22, y + 4, 2, rgb(150, 100, 50));
-    for(int d = 0; d < 5; d++) cc.drawLine(x + 22, y + 4, x + 34, y - 3 + d * 3, rgb(220, 180, 80));
-    cc.fillRoundRect(x - 8, y - 8, 12, 15, 3, rgb(60, 40, 80));
-    cc.fillCircle(x - 2, y - 11, 4, rgb(240, 200, 170));
-    cc.fillTriangle(x - 10, y - 13, x + 6, y - 13, x - 4, y - 28, rgb(30, 20, 40));
-    for(int i = 0; i < 6; i++) if((now / 300 + i) % 3) cc.drawPixel((i * 53 + 17) % CW, CTOP + 40 + (i * 31) % 70, TFT_WHITE);
-    compText("Arriva la Befana!", cx, CH - 18, rgb(220, 200, 255), top_center, &fonts::Font2);
-  } else if(kind == "sanvalentino"){   // cuori che salgono
-    for(int i = 0; i < 10; i++){
-      int x = i % 2 ? 18 + (i * 7) % 24 : CW - 18 - (i * 7) % 24, y = CH + 10 - (int)((now / 25 + i * 29) % 150);
-      if(y > CTOP + 6) drawHeart(x, y, 10 + (i % 3) * 4, hueColor(330 + i * 6));
-    }
-  } else if(kind == "carnevale"){
-    for(int s = -1; s <= 1; s += 2) cc.drawWideLine(cx + s * 84, cy - 30, cx + s * 110, cy - 46 - (int)(4 * sin(now / 150.0)), 2, rgb(240, 190, 40));   // nastrini
-  } else if(kind == "pasqua"){   // orecchie da coniglio e ovetti colorati
-    for(int s = -1; s <= 1; s += 2){
-      int ex = cx + s * 26 + (s < 0 ? 0 : (int)(3 * sin(now / 250.0)));
-      cc.fillEllipse(ex, CTOP + 16, 10, 22, TFT_WHITE);
-      cc.fillEllipse(ex, CTOP + 18, 5, 16, rgb(255, 170, 200));
-    }
-    compEgg(22, 110, rgb(255, 120, 180), rgb(255, 230, 90));
-    compEgg(CW - 22, 110, rgb(120, 200, 255), rgb(255, 255, 255));
-    compEgg(46, 118, rgb(180, 240, 120), rgb(200, 120, 255));
-  }
-}
-
-void compWeatherAnim(const String& kind, uint32_t now, float k, int ox){
-  if(compIsFeast(kind)){ compFestAnim(kind, now, k, ox); return; }
-  const int cx = CW / 2, cy = 78;
-  ox /= 2;
-  if(kind == "sun"){ compSunglasses(cx + ox, cy); compSunCorner(CW - 22, CTOP + 18, now); return; }
-  if(kind == "moon") cc.fillRect(0, CTOP, CW, CH - CTOP, rgb(8, 10, 40));   // cielo di notte
-  String m = "normal"; uint16_t col = moodColor("normal"); int h = 66, oy = 0;
-  if(kind == "cold"){ col = rgb(170, 230, 255); ox += random(0, 2) ? 2 : -2; h = 56; }
-  else if(kind == "hot"){ m = "sleepy"; col = rgb(255, 150, 60); }
-  else if(kind == "fog"){ col = rgb(160, 165, 175); h = 30; }
-  else if(kind == "storm"){ m = "surprised"; col = rgb(255, 230, 120); }
-  else if(kind == "snow"){ m = "happy"; col = rgb(230, 245, 255); }
-  else if(kind == "cloud"){ oy = -4; }
-  else if(kind == "rain"){ col = rgb(120, 190, 255); }
-  bool umbrella = kind == "rain" || kind == "storm";
-  if(umbrella){ compUmbrella(cx, now); oy = 8; h = 58; }   // l'ombrello prima: il suo taglio non tocca gli occhi
-  compEyes(cx - 46 + ox, cx + 46 + ox, cy + oy, 56, max(2, (int)(h * k)), m, col);
-
-  if(umbrella){
-    if(kind == "storm" && now % 1800 < 160){   // lampo
-      cc.fillTriangle(18, CTOP + 2, 32, CTOP + 2, 22, CTOP + 26, rgb(255, 235, 60));
-      cc.fillTriangle(22, CTOP + 22, 34, CTOP + 22, 14, CTOP + 52, rgb(255, 235, 60));
-    }
-  } else if(kind == "cold"){
-    if((now / 400) % 2) compText("Brrr!", cx, CTOP + 4, rgb(170, 230, 255), top_center, &fonts::Font2);
-    for(int s = -1; s <= 1; s += 2) for(int y = 50; y < 110; y += 8){   // tremolio ai lati
-      int x = cx + s * 100;
-      cc.drawLine(x - 2, y, x + 2, y + 4, rgb(170, 230, 255)); cc.drawLine(x + 2, y + 4, x - 2, y + 8, rgb(170, 230, 255));
-    }
-  } else if(kind == "hot"){
-    compSunCorner(CW - 22, CTOP + 18, now);
-    compSweat(cx - 90, 50 + (now / 40) % 40); compSweat(cx + 92, 50 + (now / 40 + 20) % 40);
-    for(int x = 0; x < CW; x += 6) cc.fillRect(x, CH - 6 + ((x / 6 + now / 150) % 4 < 2 ? 1 : 0), 4, 2, rgb(255, 120, 40));
-  } else if(kind == "snow"){
-    for(int i = 0; i < 22; i++){
-      int x = (i * 37 + (int)(8 * sin(now / 500.0 + i))) % CW, y = CTOP + (int)((now / 45 + i * 29) % 125);
-      cc.drawFastHLine(x - 2, y, 5, TFT_WHITE); cc.drawFastVLine(x, y - 2, 5, TFT_WHITE);
-    }
-  } else if(kind == "moon"){
-    cc.fillCircle(CW - 26, CTOP + 20, 12, rgb(250, 240, 190)); cc.fillCircle(CW - 20, CTOP + 15, 11, rgb(8, 10, 40));
-    const uint8_t st[][2] = {{14, 24}, {50, 40}, {96, 20}, {150, 30}, {30, 112}, {200, 110}, {176, 60}};
-    for(int i = 0; i < 7; i++) if((now / 300 + i) % 3){
-      uint16_t c = (i % 2) ? rgb(255, 240, 160) : TFT_WHITE;
-      cc.drawPixel(st[i][0], st[i][1], c);
-      if((now / 300 + i) % 3 == 1){ cc.drawFastHLine(st[i][0] - 2, st[i][1], 5, c); cc.drawFastVLine(st[i][0], st[i][1] - 2, 5, c); }
-    }
-  } else if(kind == "fog"){
-    for(int r = 0; r < 5; r++){
-      int y = CTOP + 12 + r * 22, off = (int)((now / 50) % 40) * (r % 2 ? 1 : -1);
-      for(int x = -40 + off; x < CW; x += 40) cc.fillRoundRect(x, y, 28, 5, 2, rgb(120, 125, 135));
-    }
-  } else if(kind == "cloud"){
-    int left = WX_ANIM_MS - (int)(wxa.until - now);
-    int x = CW + 40 - left * (CW + 90) / WX_ANIM_MS;
-    uint16_t c = rgb(225, 228, 238);
-    cc.fillCircle(x, CTOP + 18, 12, c); cc.fillCircle(x + 14, CTOP + 12, 14, c); cc.fillCircle(x + 28, CTOP + 18, 12, c); cc.fillRect(x, CTOP + 18, 28, 12, c);
-  }
 }
 
 // ---- viste di KEY2 ----
@@ -910,7 +502,7 @@ void compInstall(uint32_t now){
 void compTypingScreen(uint32_t now){
   cc.fillRect(0, CTOP, CW, CH - CTOP, COL_BG);
   bool done = compTyping < 0;
-  compEyes(80, 160, 56, 40, 46, done ? "happy" : "work", done ? moodColor("done") : moodColor("work"));
+  scnBegin(); scnFace(done ? "happy" : "work", now / 1000.0f, 0, -28, 0.55f); scnEnd();
   compText(done ? "Pagina aperta sul PC!" : "Apro la pagina GitHub...", CW / 2, 88, TFT_WHITE, top_center, &fonts::Font2);
   if(!done) compBar(20, 110, CW - 40, 8, compTyping, moodColor("work"));
   else compText("segui le istruzioni nel browser", CW / 2, 110, COL_MUTED, top_center);
@@ -930,9 +522,7 @@ void renderCompanion(){
   if(compView == 2){ compViewClock(now); cc.pushSprite(0, 0); return; }
 
   String m = compMood();
-  compLook(now, m);
-  float k = compBlink(now);
-  int ox = (int)fx.lx, oy = (int)fx.ly;
+  float k = compBlink(now);   // battito di palpebre della mascotte di Claude
   const int cx = FACE_W / 2;
 
   // meteo: ogni tanto un'animazione, quando il companion non sta facendo altro di importante
@@ -950,45 +540,25 @@ void renderCompanion(){
   }
   bool wxOn = wxa.kind.length() && !speaking && m != "ask" && (wxa.forced || wxEligible);
 
-  if(compUpdAt && now - compUpdAt < 10000 && !(cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0)){
+  const float t = now / 1000.0f;
+  if(compUpdAt && now - compUpdAt < 10000 && !speaking){
     // aggiornamento chiesto al PC, in attesa della risposta
-    compEyes(cx - 34, cx + 34, 58, 40, 46, "surprised", moodColor("excited"));
+    scnBegin(); scnFace("surprised", t, 0, -20, 0.6f); scnEnd();
     compText("Chiedo al PC", cx, 92, TFT_WHITE, top_center, &fonts::Font2);
     compText(("di aggiornare" + String("...").substring(0, (now / 300) % 4)).c_str(), cx, 110, TFT_WHITE, top_center, &fonts::Font2);
-  } else if(speaking && m != "ask"){
-    compSpeech(cs.msgEmo, cs.msgText, k, now);
-  } else if(wxOn){
-    compWeatherAnim(wxa.kind, now, k, ox);
-  } else if(m == "music"){   // cuffie e occhi arcobaleno che ballano a tempo
-    float beat = (now % 500) / 500.0f; int n = now / 500;
-    int bounce = -(int)(6 * sin(3.14159f * beat)), sway = (int)(14 * sin(now * 3.14159f / 1000.0f));
-    const char* dance[] = {"normal", "happy", "normal", "love"};
-    int h = beat < 0.12f ? 44 : 52;
-    compEyes(cx - 28 + sway, cx + 28 + sway, 74 + bounce, 42, max(2, (int)(h * k)), dance[(n / 4) % 4], hueColor(now / 8));
-    compHeadphones(cx + sway, 74 + bounce, 58, hueColor(now / 8 + 180));
-    for(int i = 0; i < 6; i++){   // note colorate che salgono
-      int t = (now / 20 + i * 27) % 160, side = i % 2 ? 1 : -1;
-      compNote(cx + side * (72 + t / 5 + (i / 2) * 6), 108 - t * 2 / 3, hueColor(i * 60 + now / 10));
-    }
-  } else if(m == "video"){
-    int fl = (now / 180) % 5 == 0 ? 3 : 0;
-    compEyes(cx - 44 + ox / 3, cx + 12 + ox / 3, 62, 44, max(2, (int)((52 - fl) * k)), "normal", fl ? rgb(200, 230, 255) : moodColor("video"));
-    compPopcorn(cx + 56, 76, now);
-  } else if(m == "code"){
-    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(30 * k)), "normal", moodColor("code"));
-    if(cs.media == 1) compHeadphones(cx + ox / 2, 40, 58, rgb(255, 90, 170));
-    compLaptop(now);
-  } else if(m == "game"){
-    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(32 * k)), "game", gameColor(cs.detail));
-    compGameIcon(cs.detail, now);
-  } else if(m == "osm"){
-    compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(32 * k)), "normal", moodColor("osm"));
-    compOsm(cs.detail == "edit", now);
-  } else if(m == "work" || m == "ask" || m == "done"){   // Claude Code: la mascotte
+  } else if(!(speaking && m != "ask") && (m == "work" || m == "ask" || m == "done")){   // Claude Code: la mascotte
     compClawd(m, now, k);
   } else {
-    int h = m == "sleepy" || m == "bored" ? 60 : 76;
-    compEyes(cx - 46 + ox, cx + 46 + ox, 72 + oy, 62, max(2, (int)(h * k)), m, moodColor(m));
+    scnBegin();
+    if(speaking) scnSpeech(cs.msgEmo, cs.msgText, t);
+    else if(wxOn) compIsFeast(wxa.kind) ? scnFeast(wxa.kind, t) : scnWeather(wxa.kind, t);
+    else if(m == "music") scnMusic(t);
+    else if(m == "video") scnVideo(t);
+    else if(m == "code") scnCode(t, cs.media == 1);
+    else if(m == "game") scnGame(cs.detail, t);
+    else if(m == "osm") scnOsm(cs.detail == "edit", t);
+    else scnMood(m.c_str(), t);
+    scnEnd();
   }
   compMediaFooter(now);
   compTopBar();   // per ultima: gli archetti delle cuffie non la coprono

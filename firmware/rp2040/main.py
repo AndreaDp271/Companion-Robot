@@ -156,10 +156,6 @@ def led_color(m, now):
         return (1, 3, 8) if (now // 180) % 5 else (3, 5, 12)
     if m == "game":
         g = state["detail"]
-        if g == "isonzo" and iso["boom"] > 5:  # lampo dell'esplosione
-            return (20, 10, 0)
-        if g == "tlou" and tlou["lit"]:  # clicker illuminato dalla torcia
-            return (14, 0, 0)
         if g in GAME_LED:
             return GAME_LED[g]
         # gioco sconosciuto: rosso e blu alternati, da sala giochi
@@ -177,50 +173,6 @@ def rrect(x, y, w, h, r, c=1):
     for cx, cy in ((x + r, y + r), (x + w - r - 1, y + r),
                    (x + r, y + h - r - 1), (x + w - r - 1, y + h - r - 1)):
         oled.ellipse(cx, cy, r, r, c, True)
-
-
-def draw_heart(cx, cy, s):
-    r = s // 4
-    oled.ellipse(cx - r, cy - r // 2, r, r, 1, True)
-    oled.ellipse(cx + r, cy - r // 2, r, r, 1, True)
-    oled.poly(0, 0, array("h", [cx - 2 * r, cy - r // 3, cx + 2 * r, cy - r // 3, cx, cy + 2 * r]), 1, True)
-
-
-def draw_eye(cx, cy, w, h, m, side):
-    x, y = cx - w // 2, cy - h // 2
-    if m == "love" and h > 10:  # occhi a cuore
-        draw_heart(cx, cy, w)
-        return
-    if m == "surprised" and h > 10:  # occhi tondi spalancati con la pupilla
-        oled.ellipse(cx, cy, w // 2, h // 2, 1, True)
-        oled.ellipse(cx, cy, w // 6, w // 6, 0, True)
-        return
-    rrect(x, y, w, h, 8 if w > 24 else 5)
-    if h <= 10:
-        return
-    if m == "work":  # super concentrato: occhi stretti e sopracciglia aggrottate verso il centro
-        oled.fill_rect(x, y, w, h * 3 // 10, 0)
-        tri = array("h", [0, 0, w, 0, w, h * 6 // 10]) if side < 0 else array("h", [0, 0, w, 0, 0, h * 6 // 10])
-        oled.poly(x, y, tri, 0, True)
-    elif m == "bored":  # palpebre pesanti e dritte
-        oled.fill_rect(x, y, w, h * 55 // 100, 0)
-    elif m in ("sad", "sleepy"):  # palpebra che scende verso l'esterno
-        tri = array("h", [0, 0, w, 0, 0, h * 6 // 10]) if side < 0 else array("h", [0, 0, w, 0, w, h * 6 // 10])
-        oled.poly(x, y, tri, 0, True)
-        if m == "sleepy":
-            oled.fill_rect(x, y, w, h * 35 // 100, 0)
-    elif m in ("happy", "done", "excited"):
-        # taglia la parte bassa con un'ellisse: occhio ad arco ^
-        oled.ellipse(cx, y + h + 6, w // 2 + 4, h // 2 + 2, 0, True)
-    elif m in ("stress", "game"):
-        # palpebra inclinata verso il centro: sguardo concentrato
-        tri = array("h", [0, 0, w, 0, w, h // 2]) if side < 0 else array("h", [0, 0, w, 0, 0, h // 2])
-        oled.poly(x, y, tri, 0, True)
-    elif m == "sleep":
-        oled.fill_rect(x, y, w, h // 2 + 4, 0)
-    elif m == "ask":
-        # pupilla: occhi spalancati che ti guardano
-        oled.ellipse(cx, cy, 6, 6, 0, True)
 
 
 def center_text(s, y):
@@ -295,513 +247,988 @@ def draw_clawd(m, now, k):
                 oled.vline(sx, sy - 3, 7, 1)
 
 
-# righe di codice (rientro, lunghezza) che scorrono sullo schermo del portatile
-code_lines = [(random.randint(0, 3) * 4, random.randint(8, 36)) for _ in range(5)]
-typed = 0
+# ---------------------------------------------------------------- motore di disegno
+# Le scene usano le stesse coordinate dell'anteprima: area alta 100 con l'origine al centro
+# (x da -100 a 100). Qui 1 unità = 0,64 pixel; v_tr, v_sc e v_rot spostano, scalano e ruotano.
+
+PI = math.pi
+U = 0.64
+TM = [U, 0.0, 0.0, U, 64.0, 32.0]
+_tms = []
 
 
-def draw_laptop(now):
-    global typed, code_lines
-    # schermo
-    oled.rect(30, 28, 68, 29, 1)
-    oled.rect(31, 29, 66, 27, 1)
-    # base/tastiera
-    rrect(22, 57, 84, 5, 2)
-    oled.hline(56, 59, 16, 0)
-    u = state["usage"]
-    if u and u[:2] != ["-", "-"] and (now // 5000) % 2:  # ogni 5 s: consumi di Claude sullo schermo
-        oled.text("5h " + (u[0] + "%" if u[0] != "-" else "--"), 33, 33)
-        oled.text("sett" + (u[1] + "%" if u[1] != "-" else "--"), 33, 45)
-        return
-    # codice: tutte le righe complete tranne l'ultima, che si sta scrivendo
-    for i, (indent, length) in enumerate(code_lines):
-        n = length if i < len(code_lines) - 1 else min(typed, length)
-        oled.hline(35 + indent, 33 + i * 5, n, 1)
-        oled.hline(35 + indent, 34 + i * 5, n, 1)
-    indent, length = code_lines[-1]
-    # cursore lampeggiante
-    if (now // 250) % 2:
-        oled.vline(35 + indent + min(typed, length) + 1, 32 + (len(code_lines) - 1) * 5, 4, 1)
-    typed += random.choice((0, 1, 2, 2, 3))
-    if typed > length + 6:  # riga finita: va a capo e scorre
-        code_lines = code_lines[1:] + [(random.randint(0, 3) * 4, random.randint(8, 36))]
-        typed = 0
+def v_reset():
+    TM[:] = [U, 0.0, 0.0, U, 64.0, 32.0]
+    del _tms[:]
 
 
-pressed = [0, 0, 0, 0, 0]  # 4 tasti + d-pad
+def v_save():
+    _tms.append(TM[:])
 
 
-def draw_gamepad(now):
-    # corpo e impugnature
-    rrect(34, 36, 60, 20, 8)
-    oled.ellipse(40, 55, 8, 8, 1, True)
-    oled.ellipse(88, 55, 8, 8, 1, True)
-    # croce direzionale (si "sposta" quando viene premuta)
-    dx = pressed[4]
-    oled.fill_rect(42 + dx, 43, 12, 4, 0)
-    oled.fill_rect(46 + dx, 39, 4, 12, 0)
-    # 4 tasti: buco pieno a riposo, solo contorno quando premuti
-    for i, (bx, by) in enumerate(((80, 40), (86, 45), (80, 50), (74, 45))):
-        oled.ellipse(bx, by, 2, 2, 0, not pressed[i])
-    # tasti premuti a caso, come in partita
-    if random.random() < 0.35:
-        i = random.randint(0, 4)
-        pressed[i] = random.choice((-1, 1)) if i == 4 else 1 - pressed[i]
+def v_restore():
+    TM[:] = _tms.pop()
 
 
-# ---------------------------------------------------------------- scene dei giochi
-# Il companion in miniatura (testolina con gli occhioni) dentro la scena del gioco.
-# Il nome del gioco sta in alto (y 0..7), la scena usa y 10..63.
-
-face = {"k": 1.0, "look": 0}  # palpebre e sguardo, aggiornati dal ciclo principale
+def v_tr(x, y):
+    TM[4] += TM[0] * x + TM[2] * y
+    TM[5] += TM[1] * x + TM[3] * y
 
 
-def draw_buddy(x, y, w, h, look=0, squint=False):
-    """Il companion in miniatura: i suoi due occhioni, dentro il riquadro x,y,w,h."""
-    ew = max(4, w * 3 // 10)
-    full = h - 6
-    eh = max(1, int(full * face["k"]))
-    if squint:
-        eh = max(1, eh // 3)
-    ey = y + h // 2 - eh // 2 + 1
-    dx = max(-2, min(2, look + face["look"] // 3))
-    for cx in (x + w // 4 + 1, x + 3 * w // 4 - 1):
-        ex = cx - ew // 2 + dx
-        oled.fill_rect(ex - 1, ey - 1, ew + 2, eh + 2, 0)  # bordino nero: staccano dallo sfondo
-        rrect(ex, ey, ew, eh, 3)
-
-
-# Minecraft: il companion scava un blocco di terra col piccone
-DIRT = ((3, 7), (10, 6), (6, 10), (13, 11), (2, 13), (9, 14), (12, 8), (5, 13), (1, 9), (14, 14))
-CRACKS = ((8, 8, 5, 11), (8, 8, 12, 6), (5, 11, 2, 10), (8, 8, 11, 13), (12, 6, 14, 3), (5, 11, 6, 15))
-SWING = (-80, -80, -60, -15, -45, -70)  # angoli del piccone, il 4° è il colpo
-mc = {"hits": 0, "phase": -1, "debris": 0}
-
-
-def draw_minecraft(now):
-    bx, by = 74, 44
-    phase = (now // 110) % len(SWING)
-    if phase == 3 and mc["phase"] != 3 and not mc["debris"]:
-        mc["hits"] += 1
-        if mc["hits"] > 4:
-            mc["hits"], mc["debris"] = 0, 6
-    mc["phase"] = phase
-
-    oled.hline(0, 60, 128, 1)
-    if mc["debris"]:  # frammenti che volano via
-        d = 6 - mc["debris"]
-        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-            oled.fill_rect(bx + 7 + dx * (3 + d * 3), by + 7 + dy * (3 + d * 2) + d * d // 3, 3, 3, 1)
-        mc["debris"] -= 1
-    else:
-        oled.fill_rect(bx, by, 16, 16, 1)
-        oled.hline(bx, by + 4, 16, 0)  # confine erba/terra
-        for i in range(0, 16, 3):
-            oled.pixel(bx + i, by + 5, 0)
-        for px, py in DIRT:
-            oled.pixel(bx + px, by + py, 0)
-        for x1, y1, x2, y2 in CRACKS[:mc["hits"] + mc["hits"] // 2]:
-            oled.line(bx + x1, by + y1, bx + x2, by + y2, 0)
-
-    draw_buddy(12, 33, 32, 27, look=2, squint=phase == 3)
-    # piccone impugnato "a mezz'aria" accanto agli occhi
-    px, py = 50, 50
-    a = math.radians(SWING[phase])
-    ca, sa = math.cos(a), math.sin(a)
-    ex, ey = px + 24 * ca, py + 24 * sa
-    for o in (0, 1):  # manico spesso 2 pixel
-        oled.line(px + o, py, int(ex) + o, int(ey), 1)
-    for s in (-1, 1):  # testa ad arco: le punte si piegano verso il manico
-        mx, my = ex + s * 5 * -sa, ey + s * 5 * ca
-        tx, ty = ex + s * 10 * -sa - 3 * ca, ey + s * 10 * ca - 3 * sa
-        for o in (-1, 0, 1):
-            oled.line(int(ex), int(ey) + o, int(mx), int(my) + o, 1)
-        oled.line(int(mx), int(my), int(tx), int(ty), 1)
-        oled.line(int(mx), int(my) + 1, int(tx), int(ty) + 1, 1)
-    if phase == 3:  # scintille del colpo
-        for sx, sy in ((73, 41), (72, 46), (74, 38)):
-            oled.pixel(sx, sy, 1)
-
-
-# Sea of Thieves: il companion sbuca dal bordo del galeone che dondola
-SKULL = ((1, 0), (2, 0), (3, 0), (0, 1), (2, 1), (4, 1), (1, 2), (2, 2), (3, 2), (1, 3), (3, 3))
-HULL = array("h", [-32, 0, 32, 0, 24, 9, -24, 9])
-
-
-def draw_ship(now):
-    t = now / 220
-    bob = int(2 * math.sin(now / 380))
-    cx, base = 64, 50 + bob
-    # albero, vela con teschio, bandiera
-    mx = cx + 10
-    oled.vline(mx, base - 38, 38, 1)
-    oled.fill_rect(mx - 11, base - 34, 23, 15, 1)
-    for sx, sy in SKULL:
-        oled.pixel(mx - 2 + sx, base - 29 + sy, 0)
-    f = (now // 180) % 2
-    oled.line(mx, base - 38, mx + 7, base - 37 - f, 1)
-    oled.line(mx, base - 37, mx + 7, base - 36 - f, 1)
-    # il companion sul ponte, lo scafo gli copre la parte bassa
-    draw_buddy(cx - 30, base - 22, 28, 28, look=-1)
-    oled.poly(cx, base, HULL, 1, True)
-    oled.hline(cx - 26, base + 3, 52, 0)  # linea dei cannoni
-    for gx in range(cx - 20, cx + 24, 9):
-        oled.fill_rect(gx, base + 2, 3, 3, 0)
-    # onde
-    for x in range(0, 128, 2):
-        oled.fill_rect(x, 60 + int(2 * math.sin(x / 7 + t)), 2, 1, 1)
-        oled.pixel(x + 1, 63 - int(math.sin(x / 5 - t)), 1)
-
-
-# Cities: Skylines: il companion col caschetto guarda la città che cresce
-city = {"b": [], "done_at": None}
-
-
-def new_city():
-    b, x = [], 44
-    while x < 120:
-        w = random.randint(7, 11)
-        b.append([x, w, random.randint(8, 26), 0.0])
-        x += w + 2
-    city["b"], city["done_at"] = b, None
-
-
-def draw_city(now):
-    if not city["b"]:
-        new_city()
-    growing = None
-    for bl in city["b"]:
-        if bl[3] < bl[2]:
-            growing = bl
-            break
-    if growing:
-        growing[3] = min(growing[2], growing[3] + 0.4)
-    elif city["done_at"] is None:
-        city["done_at"] = now
-    elif time.ticks_diff(now, city["done_at"]) > 3000:
-        new_city()
-        return
-    oled.hline(0, 63, 128, 1)
-    for x, w, target, h in city["b"]:
-        h = int(h)
-        if not h:
-            continue
-        top = 63 - h
-        oled.fill_rect(x, top, w, h, 1)
-        for wy in range(top + 2, 61, 3):  # finestre che si accendono e spengono
-            for wx in range(x + 2, x + w - 1, 3):
-                if (wx * 7 + wy * 13 + now // 900) % 4:
-                    oled.pixel(wx, wy, 0)
-    if growing:  # gru sul palazzo in costruzione
-        x, w, _, h = growing
-        gx, top = x + w // 2, 63 - int(h)
-        oled.vline(gx, top - 9, 9, 1)
-        oled.hline(gx - 5, top - 9, 16, 1)
-        oled.vline(gx + 9, top - 8, 3 + int(2 * math.sin(now / 300)), 1)
-    # companion con il caschetto da cantiere
-    bx, by = 6, 38
-    draw_buddy(bx, by, 30, 25, look=2)
-    oled.ellipse(bx + 15, by + 1, 12, 7, 1, True, 0b0011)
-    oled.hline(bx - 2, by + 1, 34, 1)
-    oled.vline(bx + 15, by - 5, 5, 0)  # cresta del caschetto
-
-
-# Euro Truck Simulator: il companion guida il camion, lo si vede dal finestrino
-def draw_truck(now):
-    # alberi sullo sfondo che scorrono all'indietro
+def v_sc(s):
     for i in range(4):
-        tx = 140 - (now // 30 + i * 42) % 168
-        oled.vline(tx, 18, 5, 1)
-        oled.ellipse(tx, 15, 4, 4, 1, True)
-    # strada con il tratteggio che corre
-    oled.hline(0, 61, 128, 1)
-    for x in range(-((now // 15) % 16), 128, 16):
-        oled.hline(x, 63, 8, 1)
-    v = (now // 120) % 2  # vibrazione del motore
-    # rimorchio
-    oled.fill_rect(4, 24 + v, 66, 28, 1)
-    oled.rect(7, 27 + v, 60, 22, 0)
-    # cabina con muso
-    rrect(72, 28 + v, 30, 25, 4)
-    oled.fill_rect(98, 38 + v, 10, 15, 1)
-    oled.fill_rect(104, 42 + v, 2, 6, 0)  # griglia
-    # finestrino con gli occhioni del companion che guardano la strada
-    rrect(78, 31 + v, 20, 13, 3, 0)
-    eh = max(1, int(8 * face["k"]))
-    for ex in (84, 91):
-        rrect(ex + 1, 33 + v + (8 - eh) // 2, 4, eh, 1)
-    # tubo di scarico e fumo
-    oled.vline(73, 18 + v, 10, 1)
-    for k in range(3):
-        p = (now // 90 + k * 5) % 15
-        oled.ellipse(71 - p, 16 - p // 3, 1 + p // 5, 1 + p // 5, 1, False)
-    # ruote che girano
-    spin = (now // 60) % 4
-    for wx in (16, 30, 58, 82, 100):
-        oled.ellipse(wx, 55, 5, 5, 1, True)
-        oled.ellipse(wx, 55, 2, 2, 0, True)
-        dx, dy = ((0, -4), (4, 0), (0, 4), (-4, 0))[spin]
-        oled.pixel(wx + dx, 55 + dy, 0)
+        TM[i] *= s
 
 
-# Isonzo: il companion con l'elmetto in trincea, esplosioni sulle montagne
-MOUNTAINS = array("h", [0, 40, 18, 26, 30, 34, 50, 20, 70, 36, 88, 24, 104, 33, 127, 25, 127, 40])
-iso = {"boom": 0, "x": 0, "y": 0}
+def v_rot(r):
+    c, s = math.cos(r), math.sin(r)
+    a, b, cc, d = TM[0], TM[1], TM[2], TM[3]
+    TM[0], TM[1], TM[2], TM[3] = a * c + cc * s, b * c + d * s, cc * c - a * s, d * c - b * s
 
 
-def draw_trench(now):
-    oled.poly(0, 0, MOUNTAINS, 1, False)
-    oled.line(50, 20, 45, 24, 1)  # neve sulle cime
-    oled.line(50, 20, 55, 24, 1)
-    oled.line(88, 24, 84, 27, 1)
-    oled.line(88, 24, 92, 27, 1)
-    oled.hline(0, 45, 128, 1)  # filo spinato e cavalli di frisia
-    for x in range(2, 128, 14):
-        oled.line(x, 42, x + 6, 48, 1)
-        oled.line(x + 6, 42, x, 48, 1)
-    if not iso["boom"] and random.random() < 0.03:
-        iso["boom"], iso["y"] = 9, random.randint(26, 36)
-        iso["x"] = random.choice((random.randint(10, 36), random.randint(92, 118)))
-    if iso["boom"]:
-        r = 10 - iso["boom"]
-        bx, by = iso["x"], iso["y"]
-        if iso["boom"] > 6:  # lampo
-            oled.ellipse(bx, by, r * 2, r * 2, 1, True)
-        else:  # nuvola che si allarga e detriti
-            oled.ellipse(bx, by, r * 2, r * 2, 0, True)
-            oled.ellipse(bx, by, r * 2, r * 2, 1, False)
-            for dx, dy in ((-3, -2), (3, -3), (-2, 1), (4, 0)):
-                oled.pixel(bx + dx * r, by + dy * r // 2, 1)
-        iso["boom"] -= 1
-    # il companion con l'elmetto sbuca dalla trincea (trema durante le esplosioni)
-    shake = random.randint(-1, 1) if iso["boom"] > 3 else 0
-    bx, by = 49 + shake, 36
-    draw_buddy(bx, by, 30, 24, look=0, squint=iso["boom"] > 0)
-    oled.ellipse(bx + 15, by + 2, 14, 8, 1, True, 0b0011)
-    oled.hline(bx - 4, by + 2, 38, 1)
-    oled.hline(bx - 4, by + 3, 38, 1)
-    for x in range(0, 128, 11):  # sacchi di sabbia davanti
-        oled.ellipse(x + 5, 60, 5, 3, 1, True)
-        oled.ellipse(x + 5, 60, 5, 3, 0, False)
-    oled.fill_rect(0, 63, 128, 1, 1)
+def mp(x, y):
+    return round(TM[0] * x + TM[2] * y + TM[4]), round(TM[1] * x + TM[3] * y + TM[5])
 
 
-# The Last of Us: rovine al buio, gli occhioni con la torcia; si vede solo ciò che il fascio
-# illumina. Ogni tanto nel buio c'è un clicker: se la luce lo becca, gli occhi si spaventano.
-RUINS = ((44, 30, 18, 33), (66, 22, 14, 41), (84, 34, 20, 29), (108, 26, 18, 37))
-tlou = {"lit": False, "next": 0, "last": None, "scare_until": 0}
-zombies = []  # [tipo, x, seme per l'animazione]; si avvicinano da destra verso gli occhi
-ZOMBIE_SPEED = {"runner": 0.045, "clicker": 0.012}  # pixel al millisecondo
+def axis():
+    return abs(TM[1]) < 1e-4 and abs(TM[2]) < 1e-4
 
 
-def draw_runner(x, now, seed):
-    """Runner: corre verso sinistra, busto in avanti, braccia e gambe che si alternano."""
-    step = (now // 90 + seed) % 2
-    oled.ellipse(x - 1, 41, 3, 3, 1, True)
-    oled.line(x, 44, x + 2, 53, 1)  # busto piegato in avanti
-    oled.line(x + 1, 44, x + 3, 53, 1)
-    if step:
-        oled.line(x, 46, x - 7, 49, 1)
-        oled.line(x + 1, 46, x + 6, 43, 1)
-        oled.line(x + 2, 53, x - 4, 62, 1)
-        oled.line(x + 3, 53, x + 8, 60, 1)
+def scl():
+    return math.sqrt(abs(TM[0] * TM[3] - TM[1] * TM[2]))
+
+
+def P(pts, c=1):
+    a = array("h", [0] * len(pts))
+    for i in range(0, len(pts), 2):
+        a[i], a[i + 1] = mp(pts[i], pts[i + 1])
+    oled.poly(0, 0, a, c, True)
+
+
+def E(x, y, rx, ry, c=1, fill=True, quad=0b1111):
+    if rx <= 0 or ry <= 0:
+        return
+    if axis():
+        px, py = mp(x, y)
+        oled.ellipse(px, py, round(rx * abs(TM[0])), round(ry * abs(TM[3])), c, fill, quad)
     else:
-        oled.line(x, 46, x - 6, 43, 1)
-        oled.line(x + 1, 46, x + 6, 50, 1)
-        oled.line(x + 2, 53, x + 6, 62, 1)
-        oled.line(x + 3, 53, x - 2, 59, 1)
+        P([v for i in range(12) for v in (x + rx * math.cos(i * 0.5236), y + ry * math.sin(i * 0.5236))], c)
 
 
-def draw_clicker(x, now, seed, lit):
-    """Clicker: cammina lento, testa a fungo che scatta; se illuminato fa "click"."""
-    hx = x + (random.randint(-1, 1) if (now // 120 + seed) % 3 == 0 else 0)
-    oled.ellipse(hx, 34, 4, 5, 1, True)
-    for dx, dy in ((-5, -4), (5, -4), (-6, 1), (6, 2), (0, -6)):  # placche del fungo
-        oled.line(hx, 34, hx + dx, 34 + dy, 1)
-    oled.fill_rect(x - 3, 39, 7, 12, 1)
-    oled.line(x - 3, 41, x - 9, 48, 1)  # braccia protese
-    oled.line(x + 3, 41, x - 2, 46, 1)
-    sway = (now // 250 + seed) % 2
-    oled.line(x - 2, 51, x - 4 + sway * 2, 62, 1)
-    oled.line(x + 2, 51, x + 4 - sway * 2, 62, 1)
-    if lit and (now // 180) % 2:  # onde del "click"
-        oled.ellipse(hx + 5, 34, 3, 4, 1, False, 0b1001)
-        oled.ellipse(hx + 5, 34, 6, 7, 1, False, 0b1001)
+def R(x, y, w, h, r=0, c=1):
+    if w <= 0 or h <= 0:
+        return
+    if not axis():
+        P([x, y, x + w, y, x + w, y + h, x, y + h], c)
+        return
+    x0, y0 = mp(x, y)
+    x1, y1 = mp(x + w, y + h)
+    if x1 < x0:
+        x0, x1 = x1, x0
+    if y1 < y0:
+        y0, y1 = y1, y0
+    ww, hh, rr = max(1, x1 - x0), max(1, y1 - y0), round(r * abs(TM[0]))
+    if rr >= 2:
+        rrect(x0, y0, ww, hh, rr, c)
+    else:
+        oled.fill_rect(x0, y0, ww, hh, c)
 
 
-def draw_tlou(now):
-    for x, y, w, h in RUINS:  # palazzi in rovina, finestre rotte e rampicanti
-        oled.rect(x, y, w, h, 1)
-        oled.line(x, y, x + w // 3, y - 5, 1)
-        oled.line(x + w // 3, y - 5, x + w // 2, y + 2, 1)
-        for wy in range(y + 4, y + h - 4, 7):
-            for wx_ in range(x + 3, x + w - 3, 5):
-                oled.fill_rect(wx_, wy, 2, 3, 1)
-        for i in range(2):
-            vx = x + 3 + i * (w - 6)
-            for vy in range(y, y + h * 2 // 3, 2):
-                oled.pixel(vx + int(1.5 * math.sin(vy / 3 + i)), vy, 1)
-    oled.hline(36, 62, 92, 1)
-    oled.rect(50, 55, 20, 5, 1)  # macchina abbandonata
-    oled.line(54, 55, 57, 51, 1)
-    oled.hline(57, 51, 7, 1)
-    oled.line(64, 51, 67, 55, 1)
-    oled.ellipse(54, 60, 2, 2, 1, True)
-    oled.ellipse(66, 60, 2, 2, 1, True)
-    # zombie: ne arrivano fino a due, runner veloci e clicker lenti
-    dt = 0 if tlou["last"] is None else max(0, min(100, time.ticks_diff(now, tlou["last"])))
-    tlou["last"] = now
-    if len(zombies) < 2 and time.ticks_diff(now, tlou["next"]) > 0:
-        zombies.append([random.choice(("runner", "runner", "clicker")), 134.0, random.randint(0, 9)])
-        tlou["next"] = time.ticks_add(now, random.randint(1500, 4500))
-    for z in zombies[:]:
-        z[1] -= ZOMBIE_SPEED[z[0]] * dt
-        if z[1] < 46:  # è arrivato agli occhi: sparisce, e che spavento!
-            zombies.remove(z)
-            tlou["scare_until"] = time.ticks_add(now, 700)
-    # fascio della torcia: calcolato prima per sapere chi è illuminato
-    ox, oy = 38, 48
-    a, half = -0.15 + 0.32 * math.sin(now / 1400), 0.34
-    lit = False
-    for kind, zx, seed in zombies:
-        z_lit = abs(math.atan2(40 - oy, zx - ox) - a) < half
-        lit = lit or z_lit
-        oled.fill_rect(int(zx) - 10, 27, 20, 35, 0)  # sagoma staccata dalle rovine
-        if kind == "runner":
-            draw_runner(int(zx), now, seed)
+def SR(x, y, w, h, c=1):  # solo il contorno
+    x0, y0 = mp(x, y)
+    x1, y1 = mp(x + w, y + h)
+    oled.rect(min(x0, x1), min(y0, y1), max(1, abs(x1 - x0)), max(1, abs(y1 - y0)), c)
+
+
+def L(pts, w=1.5, c=1):
+    wp = w * scl()
+    q = [mp(pts[i], pts[i + 1]) for i in range(0, len(pts), 2)]
+    for i in range(1, len(q)):
+        (x0, y0), (x1, y1) = q[i - 1], q[i]
+        if wp < 1.6:
+            oled.line(x0, y0, x1, y1, c)
+            continue
+        dx, dy = x1 - x0, y1 - y0
+        n = math.sqrt(dx * dx + dy * dy) or 1
+        ox, oy = -dy / n * wp / 2, dx / n * wp / 2
+        oled.poly(0, 0, array("h", [round(x0 + ox), round(y0 + oy), round(x1 + ox), round(y1 + oy),
+                                    round(x1 - ox), round(y1 - oy), round(x0 - ox), round(y0 - oy)]), c, True)
+        if wp >= 2.5:
+            oled.ellipse(x1, y1, round(wp / 2 - 0.5), round(wp / 2 - 0.5), c, True)
+
+
+def arc_pts(cx, cy, r, a0, a1, ry=None):
+    n = max(4, int(abs(a1 - a0) / 6.283 * 20) + 2)
+    ry = r if ry is None else ry
+    return [v for i in range(n + 1) for v in (cx + r * math.cos(a0 + (a1 - a0) * i / n), cy + ry * math.sin(a0 + (a1 - a0) * i / n))]
+
+
+def A(x, y, r, a0, a1, w=1.5, c=1):
+    L(arc_pts(x, y, r, a0, a1), w, c)
+
+
+def quad_pts(x0, y0, cx, cy, x1, y1, n=6):
+    return [v for i in range(1, n + 1) for v in (
+        (1 - i / n) ** 2 * x0 + 2 * (1 - i / n) * (i / n) * cx + (i / n) ** 2 * x1,
+        (1 - i / n) ** 2 * y0 + 2 * (1 - i / n) * (i / n) * cy + (i / n) ** 2 * y1)]
+
+
+def T(s, x, y, c=1):
+    px, py = mp(x, y)
+    oled.text(s, px - 4 * len(s), py - 4, c)
+
+
+def rnd(i):
+    s = math.sin(i * 12.9898) * 43758.5453
+    return s - math.floor(s)
+
+
+def blinkf(t, off=0):
+    p = (t + off) % 4.3
+    return abs(p - 0.08) / 0.08 if p < 0.16 else 1
+
+
+def lookf(t):
+    return math.sin(t * 0.7) * 2.5 + math.sin(t * 1.9) * 0.8
+
+
+# ---------------------------------------------------------------- il personaggio: occhioni, sopracciglia, bocca
+
+EYE_HS = {"excited": 40, "ask": 40, "work": 20, "sleep": 4, "sleepy": 15, "hot": 22, "sad": 30, "stress": 28}
+BROWS = {"happy": (5, .18), "excited": (8, .2), "love": (4, .15), "surprised": (10, 0), "sad": (1, .3),
+         "stress": (-3, -.3), "sleepy": (-3, .15), "sleep": (-2, .08), "work": (-3, -.38), "ask": (8, 0),
+         "cold": (2, .3), "hot": (0, .25), "music": (0, .12)}
+
+
+def heart(x, y, size, c=1):
+    r = size * 0.28
+    E(x - r * 0.95, y - r * 0.4, r, r, c)
+    E(x + r * 0.95, y - r * 0.4, r, r, c)
+    P([x - size * 0.53, y - r * 0.15, x + size * 0.53, y - r * 0.15, x, y + size * 0.55], c)
+
+
+def brow(x, y, ang, c=1):
+    v_save()
+    v_tr(x, y)
+    v_rot(ang)
+    R(-13, -2.6, 26, 5.2, 0, c)
+    v_restore()
+
+
+def mouth(m, t, c=1):
+    if m in ("happy", "love", "excited"):
+        r, y = (12, 20) if m == "excited" else (10, 21)
+        P([-r, y] + arc_pts(0, y, r, 0, PI), c)
+        E(0, y + r * 0.65, r * 0.5, r * 0.26, 0)  # lingua
+    elif m == "surprised":
+        E(0, 27, 6, 7.5, c)
+    elif m in ("ask", "talk"):
+        E(0, 26, 4.5, 1.5 + abs(math.sin(t * 9)) * 4 if m == "talk" else 5.5, c)
+    elif m == "music":
+        E(0, 26, 5, 2.5 + abs(math.sin(t * PI * 2)) * 4.5, c)
+    elif m == "sleep":
+        r = 2.2 + math.sin(t * 1.5) * 0.8
+        E(0, 26, r, r, c)
+    elif m == "sleepy":
+        E(0, 26, 2.5, 3, c)
+    elif m == "sad":
+        A(0, 35, 9, PI * 1.22, PI * 1.78, 3.2, c)
+    elif m == "stress":
+        L([-10, 26, -6, 23, -2, 27, 2, 23, 6, 27, 10, 23], 3.2, c)
+    elif m == "bored":
+        if t % 5 < 1.1:
+            E(0, 26, 5, 6.5, c)
         else:
-            draw_clicker(int(zx), now, seed, z_lit)
-    # tutto ciò che sta fuori dal cono torna al buio
-    t1, t2 = math.tan(a - half), math.tan(a + half)
-    for x in range(ox, 128, 2):
-        top, bot = oy + int((x - ox) * t1), oy + int((x - ox) * t2)
-        if top > 10:
-            oled.fill_rect(x, 10, 2, top - 10, 0)
-        if bot < 64:
-            oled.fill_rect(x, max(10, bot), 2, 64 - max(10, bot), 0)
-    scared = time.ticks_diff(tlou["scare_until"], now) > 0
-    tlou["lit"] = lit or scared
-    for i in range(10):  # spore che fluttuano, visibili solo nella luce
-        sx = 40 + (i * 29 + now // 70) % 88
-        sy = 12 + (i * 17 + int(4 * math.sin(now / 600 + i))) % 50
-        if abs(math.atan2(sy - oy, sx - ox) - a) < half:
-            oled.pixel(sx, sy, 1)
-    # gli occhioni al buio, con la torcia in mano
-    oled.fill_rect(0, 10, ox, 54, 0)
-    jump = -4 if scared else 0  # salto di spavento
-    draw_buddy(0, 34 + jump, 28, 28, look=1, squint=lit or scared)
-    oled.fill_rect(30, 46 + jump, 8, 5, 1)  # torcia
-    oled.vline(38, 45 + jump, 7, 1)
-    if (lit or scared) and (now // 150) % 2:
-        oled.text("!!" if scared else "!", 28, 26)
+            L([-8, 27, 8, 25], 3.2, c)
+    elif m == "work":
+        L([-7, 26, 4, 25], 3.2, c)
+    elif m == "cold":
+        L([-9, 21, 9, 21, 9, 30, -9, 30, -9, 21], 2.4, c)
+        j = int(t * 14) % 2
+        L([-3 + j, 22, -3 + j, 29], 1.6, c)
+        L([3 + j, 22, 3 + j, 29], 1.6, c)
+    elif m == "hot":
+        E(0, 24, 6, 4.5, c)
+    else:
+        A(0, 17, 9, PI * 0.22, PI * 0.78, 3.2, c)
 
 
-GAME_SCENES = {"minecraft": draw_minecraft, "sot": draw_ship, "cities": draw_city,
-               "ets2": draw_truck, "isonzo": draw_trench, "tlou": draw_tlou}
+def face(m, t, x=0, y=0, s=1, lx=0, ly=0, mm=None, brows=True):
+    v_save()
+    v_tr(x, y)
+    v_sc(s)
+    for sd in (-1, 1):
+        ex, ey, w, h = sd * 28 + lx, -2 + ly, 26, EYE_HS.get(m, 34)
+        if m == "cold":
+            ex += 1.2 if int(t * 20) % 2 else -1.2
+        if m in ("normal", "cold"):
+            h *= blinkf(t)
+        raise_, k = BROWS.get(m, (0, 0))
+        ang = sd * k
+        if m == "bored":
+            raise_, ang = (-2, 0) if sd < 0 else (6, -0.15)
+        elif m == "music":
+            raise_ = abs(math.sin(t * PI * 2)) * 6
+        elif m == "normal":
+            raise_ = max(0, math.sin(t * 0.9)) * 3
+        top, outx, inx = ey - h / 2, ex + sd * (w / 2 + 1), ex - sd * (w / 2 + 1)
+        if m == "love":
+            heart(ex, ey, 30)
+        elif m == "surprised":
+            E(ex, ey, 15, 19)
+            E(ex, ey, 5.5, 5.5, 0)
+        else:
+            R(ex - w / 2, top, w, max(2.5, h), 8)
+            if m in ("happy", "excited", "music"):
+                E(ex, ey + h / 2 + 5, w / 2 + 5, h / 2 + 1, 0)
+            elif m == "bored":
+                R(ex - w / 2 - 1, top - 1, w + 2, h * 0.5, 0, 0)
+            elif m == "ask":
+                E(ex, ey, 6.5, 6.5, 0)
+            elif m in ("sad", "sleepy", "hot"):
+                P([outx, top - 1, inx, top - 1, outx, top + h * 0.6], 0)
+            elif m == "stress":
+                P([outx, top - 1, inx, top - 1, inx, top + h * 0.5], 0)
+        if m == "excited" and int(t * 4) % 2:
+            sparkle(ex + sd * 18, ey - 16, 4)
+        by = ey - 12 if m == "sleep" else ey - max(h, 38 if m == "surprised" else 20) / 2 - 8 - raise_
+        if brows:
+            brow(ex, by, ang)
+    mouth(mm or m, t)
+    v_restore()
+
+
+# ---------------------------------------------------------------- piccoli oggetti
+
+def zzz(x, y, t):
+    for i in range(3):
+        p = (t * 0.55 + i / 3) % 1
+        T("z", x + p * 12, y - p * 18)
+
+
+def notes_up(x, y, t, spread=16):
+    for i in range(3):
+        p = (t * 0.45 + i / 3) % 1
+        nx, ny = x + (i - 1) * spread + math.sin(p * 6 + i) * 4, y - p * 26
+        E(nx, ny, 2.8, 2.1)
+        L([nx + 2.4, ny, nx + 2.4, ny - 8, nx + 5.5, ny - 6], 1.3)
+
+
+def sweat(x, y):
+    E(x, y, 2.3, 2.8)
+    P([x - 2.2, y - 1, x, y - 6, x + 2.2, y - 1])
+
+
+def sparkle(x, y, r):
+    L([x - r, y, x + r, y], 1.6)
+    L([x, y - r, x, y + r], 1.6)
+
+
+def star(cx, cy, r, ang):
+    for i in range(4):
+        a = ang + i * PI / 4
+        L([cx - math.cos(a) * r, cy - math.sin(a) * r, cx + math.cos(a) * r, cy + math.sin(a) * r], 2)
+
+
+def headphones(cx, cy, r):
+    A(cx, cy, r, PI * 1.06, PI * 1.94, 3.4)
+    R(cx - r - 5, cy - 7, 10, 18, 4)
+    R(cx + r - 5, cy - 7, 10, 18, 4)
+
+
+# ---------------------------------------------------------------- umori
+
+def s_mood(m, t):
+    y, lx, ly = 4, 0, 0
+    if m == "normal":
+        lx, ly = lookf(t) * 2.4, math.sin(t * 0.5) * 1.5
+    elif m in ("happy", "excited"):
+        y -= abs(math.sin(t * 4)) * 6
+    elif m == "stress":
+        lx = (int(t * 30) % 3 - 1) * 1.2
+    elif m == "bored":
+        lx, ly = math.sin(t * 0.5) * 10, 3
+    face(m, t, 0, y, 1, lx, ly)
+    if m == "stress":
+        sweat(58, -22 + (t * 20) % 14)
+    elif m == "sleepy" and t % 6 < 1.2:
+        T("Uaaah", 70, -34)
+    elif m == "sleep":
+        zzz(54, -26, t)
+
+
+# ---------------------------------------------------------------- VS Code
+
+def laptop(t, x=0, y=10):
+    R(x - 46, y - 10, 92, 46, 5)
+    R(x - 42, y - 6, 84, 38, 3, 0)
+    typed, acc = (t * 30) % 220, 0
+    for i, (ind, ln) in enumerate(((0, 40), (8, 30), (8, 50), (16, 24), (8, 36), (0, 18))):
+        w = max(0, min(ln, typed - acc))
+        acc += ln
+        R(x - 38 + ind, y - 2 + i * 5.6, w, 3)
+    P([x - 56, y + 36, x + 56, y + 36, x + 50, y + 44, x - 50, y + 44])
+    R(x - 10, y + 37, 20, 2, 0, 0)
+
+
+def s_code(t, music):
+    if music:
+        b = -abs(math.sin(t * PI * 2)) * 2
+        face("music", t, 0, -27 + b, 0.55, 0, 4)
+        headphones(0, -29 + b, 28)
+    else:
+        face("normal", t, 0, -27, 0.55, math.sin(t * 1.3) * 5, 4)
+    laptop(t)
+
+
+# ---------------------------------------------------------------- giochi
+
+def g_any(t):  # un giochino a piattaforme sul monitor
+    sx, sy, sw, sh, per = -66, -12, 132, 56, 2.2
+    ob = sx + sw + 12 - (t % per) / per * (sw + 30)
+    hero = sx + 34
+    d = ob - hero
+    jump = math.cos(d / 18 * PI / 2) * 17 if abs(d) < 18 else 0
+    face("excited" if jump > 4 else "stress", t, 0, -33, 0.4, 0, 7, "happy" if jump > 4 else "work")
+    for i in range(3):
+        A(sx + (i * 60 - t * 6) % 180 - 20, sy + 12, 6, PI, 2 * PI, 1.4)
+    for i in range(4):
+        A(sx + (i * 50 - t * 14) % 200 - 25, sy + sh - 8, 18, PI, 2 * PI, 1.4)
+    gy, x = sy + sh - 9, sx - (t * 34) % 10
+    while x < sx + sw:
+        R(x, gy, 10, 1.4)
+        R(x, gy, 1, 9)
+        x += 10
+    R(ob - 6, gy - 14, 12, 14)
+    R(ob - 8, gy - 17, 16, 5)
+    R(ob - 4, gy - 12, 8, 10, 0, 0)
+    E(ob + 26, gy - 30, abs(math.cos(t * 6)) * 3.2 + 0.6, 3.8)
+    hy = gy - jump
+    R(hero - 4, hy - 16, 8, 3)
+    R(hero - 3, hy - 13, 6, 4)
+    R(hero - 4, hy - 9, 8, 5)
+    st = int(t * 10) % 2 if jump < 1 else 0
+    R(hero - 4 + st, hy - 4, 3, 4)
+    R(hero + 1 - st, hy - 4, 3, 4)
+    # cornice del monitor: copre quello che esce dallo schermo
+    R(-100, sy - 5, sx + 100, sh + 10, 0, 0)
+    R(sx + sw, sy - 5, 100 - sx - sw, sh + 10, 0, 0)
+    R(sx - 5, sy - 5, sw + 10, 5)
+    R(sx - 5, sy + sh, sw + 10, 5)
+    R(sx - 5, sy - 5, 5, sh + 10)
+    R(sx + sw, sy - 5, 5, sh + 10)
+    px, py = mp(sx + 3, sy + 2)
+    oled.text("x%d" % (12 + int(t / per)), px, py)
+
+
+def g_minecraft(t):
+    R(66, -44, 14, 14)
+    R(68, -42, 10, 10, 0, 0)
+    for i in range(2):
+        cx = (i * 110 + t * 6) % 260 - 130
+        SR(cx, -40 + i * 10, 30, 5)
+        SR(cx + 6, -45 + i * 10, 18, 5)
+    gx = -99
+    while gx < 99:
+        for r in (0, 1):
+            SR(gx, 26 + r * 12, 12, 12)
+        R(gx, 26, 12, 3)
+        gx += 12
+    R(-87.5, 10, 3, 16)
+    E(-86, 8 + math.sin(t * 20) * 0.6, 3.2, 4.4)
+    ph, bx, by = (t % 4) / 4, 30, 2
+    if ph <= 0.78:
+        SR(bx, by, 24, 24)
+        for dx, dy in ((5, 6), (15, 4), (9, 15), (17, 16)):
+            R(bx + dx, by + dy, 3, 3)
+        for x1, y1, x2, y2 in ((12, 12, 4, 6), (12, 12, 20, 8), (12, 12, 8, 20), (12, 12, 21, 19), (4, 6, 2, 2))[:int(ph / 0.78 * 5)]:
+            L([bx + x1, by + y1, bx + x2, by + y2], 1.4)
+        swing = math.sin(t * 11) * 0.55 - 0.15
+    else:
+        p = (ph - 0.78) / 0.22
+        for k in range(8):
+            a = k * 0.785
+            R(bx + 12 + math.cos(a) * p * 18, by + 12 + math.sin(a) * p * 14 + p * p * 10, 3, 3)
+        s = abs(math.cos(t * 3)) * 5 + 1
+        P([bx + 12, by + 6 - math.sin(t * 4) * 2, bx + 12 + s, by + 12, bx + 12, by + 18, bx + 12 - s, by + 12])
+        swing = -0.4
+    v_save()
+    v_tr(12, -4)
+    v_rot(swing)
+    L([0, 4, 18, -14], 3)
+    P([8, -24, 14, -20, 22, -14, 28, -6, 24, -6, 18, -12, 12, -16, 6, -20])
+    v_restore()
+    face("work", t, -38, -12, 0.5, 7, 3)
+
+
+def wave_pts(y0, amp, k, sp, t):
+    return [v for x in range(-100, 108, 8) for v in (x, y0 + math.sin(x / k + t * sp) * amp)]
+
+
+def g_sot(t):
+    hz = 10
+    A(46, hz + 2, 15, PI, 2 * PI, 1.4)
+    L([-99, hz, 99, hz], 1.2)
+    for i in range(6):
+        w = 16 - i * 1.6
+        R(46 - w / 2 + math.sin(t * 3 + i) * 3, hz + 4 + i * 4, w, 1.2)
+    for i in range(3):
+        p = (t * 0.25 + i / 3) % 1
+        x, y = -80 + p * 160, -34 + i * 7 + math.sin(t * 4 + i) * 2
+        L([x - 4, y - 2, x, y, x + 4, y - 2], 1.2)
+    v_save()
+    v_tr(-6, math.sin(t * 1.6) * 2.5 + 2)
+    L([0, 18, 0, -46], 2.6)
+    L([-26, 18, -26, -30], 2.2)
+    L([44, 12, 64, 2], 1.8)
+    R(-6, -48, 12, 5)
+    bl = math.sin(t * 2) * 1.5
+    for x0, y0, x1, y1, bu in ((-23, -26, -2, 8, 4 + bl), (4, -40, 40, 6, 6 + bl)):
+        pts = [x0, y0] + quad_pts(x0, y0, (x0 + x1) / 2 + bu, y0 - 2, x1, y0) + [x1, y1] + quad_pts(x1, y1, (x0 + x1) / 2 + bu * 1.4, y1 + 4, x0, y1)
+        P(pts, 0)
+        L(pts + [x0, y0], 1.4)
+    face("happy", t, 24, -18, 0.31)
+    fw = math.sin(t * 6) * 2
+    P([0, -46, 0, -38, 14, -40 + fw, 14, -46 + fw])
+    P([-50, 10, 52, 10] + quad_pts(52, 10, 46, 30, 30, 32) + [-34, 32] + quad_pts(-34, 32, -48, 28, -50, 10))
+    for x in range(-36, 40, 14):
+        R(x, 16, 5, 4, 0, 0)
+    v_restore()
+    pts = wave_pts(36, 2.6, 11, 2.4, t)
+    P(pts + [100, 50, -100, 50], 0)
+    L(pts, 1.2)
+
+
+CITY = [(-92, 34, 16), (-74, 50, 18), (-54, 28, 14), (-38, 62, 20), (-16, 40, 16),
+        (2, 54, 18), (22, 32, 14), (38, 46, 18), (58, 66, 20), (80, 38, 16)]
+_win = {}
+
+
+def windows(key, boxes, step, seed, size):
+    """Finestre dei palazzi (posizione in pixel e soglia di accensione), calcolate la prima volta."""
+    if key not in _win:
+        v_reset()
+        out = []
+        for i, (x, top, w, bottom, margin) in enumerate(boxes):
+            wy = top + margin
+            while wy < bottom:
+                wx = x + margin - 1
+                while wx < x + w - margin:
+                    px, py = mp(wx, wy)
+                    out.append((px, py, rnd(i * seed + wy * 3 + wx)))
+                    wx += step
+                wy += step
+        _win[key] = (out, max(1, round(size * U)))
+    return _win[key]
+
+
+def g_cities(t):
+    for i in range(14):
+        if (int(t * 2) + i) % 5:
+            px, py = mp(-96 + rnd(i) * 192, -48 + rnd(i + 40) * 34)
+            oled.pixel(px, py, 1)
+    E(74, -36, 7, 7)
+    lit = min(1, (t % 10) / 6) * 0.85
+    for i, (x, h, w) in enumerate(CITY):
+        SR(x, 38 - h, w, h)
+    L([-28, -24, -28, -32], 1)
+    win, sz = windows("city", [(x, 38 - h, w, 34, 4) for x, h, w in CITY], 5, 97, 2.4)
+    for px, py, r in win:
+        if r < lit:
+            oled.fill_rect(px, py, sz, sz, 1)
+    hy = -38 + math.sin((t % 6) / 6 * PI) * 20
+    L([70, 38, 70, -40], 2)
+    L([70, -40, 22, -40], 2)
+    L([36, -40, 36, hy], 0.8)
+    R(31, hy, 10, 6)
+    L([-99, 38, 99, 38], 1)
+    x = -99
+    while x < 99:
+        R(x + (t * 20) % 12, 44, 6, 1)
+        x += 12
+    for i in range(4):
+        R((i * 55 + t * 40) % 230 - 115, 40.5, 5, 2)
+        R(115 - (i * 60 + t * 34) % 230, 46.5, 5, 2)
+    face("happy", t, -54, -32, 0.34, 6, 3)
+
+
+def g_truck(t):
+    hz = -6
+    A(-60, hz - 4, 9, PI, 2 * PI, 1.2)
+    L([v for x in range(-99, 100, 9) for v in (x, hz - 14 * (0.4 + rnd(x + 3) * 0.8))], 1)
+    L([-99, 50, -4, hz], 1)
+    L([99, 50, 4, hz], 1)
+    for i in range(5):
+        k = (1 - (t * 0.8 + i / 5) % 1) ** 2
+        y = hz + k * 56
+        for s in (-1, 1):
+            x = s * (6 + k * 110)
+            L([x, y, x, y - 2 - k * 12], 0.8 + k * 2)
+    for i in range(3):
+        k = (1 - (t * 0.55 + i / 3) % 1) ** 2
+        y, x, s = hz + k * 56, -(14 + k * 150), 1 + k * 10
+        P([x, y - s * 3, x - s, y, x + s, y])
+    Y = -2 + math.sin(t * 9) * 0.5
+    for s in (-1, 1):
+        L([s * 44, Y - 14, s * 54, Y - 18], 1.6)
+        R(s * 54 - 3, Y - 24, 6, 14, 2)
+    R(-44, Y - 44, 88, 82, 9)
+    R(-40, Y - 49, 80, 7, 3)
+    for i in range(5):
+        E(-24 + i * 12, Y - 45.5, 2, 1.6, 0)
+    R(-37, Y - 38, 74, 36, 5, 0)
+    face("happy", t, 0, Y - 18, 0.34)
+    wp = math.sin(t * 2.4) * 0.6
+    L([-20, Y - 3, -20 + math.cos(-1.2 + wp) * 22, Y - 3 + math.sin(-1.2 + wp) * 22], 1.2)
+    R(-34, Y + 2, 68, 18, 3, 0)
+    for x in range(-30, 31, 5):
+        R(x, Y + 4, 2.4, 14)
+    for s in (-1, 1):
+        R(s * 39 - 5, Y + 4, 10, 8, 2, 0)
+    R(-12, Y + 24, 24, 6, 1, 0)
+    for s in (-1, 1):
+        R(s * 34 - 8, Y + 32, 16, 10, 3)
+
+
+def g_isonzo(t):
+    L([v for x in range(-99, 100, 12) for v in (x, -6 - 30 * (0.3 + rnd(x * 0.7 + 1)))], 1)
+    ex = t % 3.1
+    if ex < 1.6:
+        p, x = ex / 1.6, -60 + int(t / 3.1) % 3 * 50
+        if p < 0.15:
+            E(x, -2, 10 * p / 0.15, 7 * p / 0.15)
+        for k in range(3):
+            E(x + (k - 1) * 6, -4 - p * 18 - k * 3, 5 + p * 6, 4 + p * 4, 1 if p < 0.4 else 0)
+    fl = (t * 0.3) % 1
+    if fl < 0.9:
+        E(50 - fl * 20, -46 + fl * 40, 2, 2)
+    for x in range(-96, 99, 32):
+        L([x, 6, x, 18], 1.4)
+    L([v for x in range(-99, 100, 4) for v in (x, 9 + (2 if (x // 4) % 2 else -1))], 0.8)
+    L([v for x in range(-99, 100, 4) for v in (x, 14 + (-1 if (x // 4) % 2 else 2))], 0.8)
+    face("stress", t, 0, 14, 0.62, (int(t * 1.5) % 3 - 1) * 6, -2, "sad", False)
+    E(0, 4, 36, 24, 1, True, 0b0011)  # elmetto: metà di sopra
+    R(-46, 1, 92, 6, 3)
+    R(-2, -22, 4, 8, 1)
+    for row in (0, 1):
+        for i in range(-1, 10):
+            x, y = -99 + i * 22 + (11 if row else 0), 44 - row * 9
+            E(x, y, 12, 5.5, 0)
+            E(x, y, 12, 5.5, 1, False)
+
+
+RUINS = ((-99, -6, 30), (-70, -30, 26), (-40, -14, 22), (-16, -40, 28), (16, -22, 24), (42, -34, 30), (74, -12, 26))
+
+
+def g_tlou(t):
+    for x, top, w in RUINS:
+        L([x, 30, x, top + 6, x + w * 0.3, top, x + w * 0.5, top + 8, x + w * 0.75, top + 2, x + w, top + 10, x + w, 30], 0.9)
+    win, sz = windows("ruin", [(x, top + 8, w, 26, 4) for x, top, w in RUINS], 7, 31, 2.6)
+    for px, py, r in win:
+        if r > 0.75:
+            oled.fill_rect(px, py, sz, sz + 1, 1)
+    L([-99, 30, 99, 30], 1)
+    if math.sin(t * 37) <= 0.93:  # la torcia sfarfalla
+        L([-40, 6, 99, -30], 0.8)
+        L([-40, 8, 99, 48], 0.8)
+    cx, tw = 92 - (t * 10) % 70, math.sin(t * 14) * 0.25
+    R(cx - 7, 4, 14, 22, 5)
+    L([cx - 6, 8, cx - 14, 18 + math.sin(t * 6) * 3], 3)
+    L([cx + 4, 9, cx - 10, 14 + math.cos(t * 6) * 3], 3)
+    L([cx - 3, 26, cx - 5, 34], 3)
+    L([cx + 3, 26, cx + 4, 34], 3)
+    v_save()
+    v_tr(cx, -2)
+    v_rot(tw)
+    E(0, 0, 9, 10)
+    for k in range(6):
+        a = -PI / 2 + (k - 2.5) * 0.5
+        P([math.cos(a) * 5, math.sin(a) * 5, math.cos(a - 0.2) * 15, math.sin(a - 0.2) * 15, math.cos(a + 0.25) * 13, math.sin(a + 0.25) * 13])
+    v_restore()
+    rx, sw = 110 - (t * 16) % 120, math.sin(t * 12)
+    R(rx - 5, 6, 10, 20, 3)
+    E(rx, 2, 5.5, 6)
+    L([rx - 3, 10, rx - 14, 8 + sw * 2.5], 2.4)
+    L([rx + 2, 11, rx - 10, 12 - sw * 2.5], 2.4)
+    L([rx - 2, 26, rx - 6 + sw * 3, 34], 2.4)
+    L([rx + 2, 26, rx + 5 - sw * 3, 34], 2.4)
+    for i in range(16):
+        if rnd(i) > 0.3:
+            px, py = mp(-96 + (i * 47 + t * 4) % 192, -40 + (i * 29 + math.sin(t + i) * 8) % 80)
+            oled.pixel(px, py, 1)
+    R(-99, 18, 62, 26, 8)
+    R(-94, 10, 44, 12, 5)
+    R(-90, 12, 16, 7, 2, 0)
+    E(-84, 44, 6, 6, 0)
+    E(-50, 44, 6, 6, 0)
+    face("surprised", t, -58, -6, 0.4, 6, 0, "stress")
+    sweat(-40, -18 + (t * 14) % 8)
+    R(-38, -2, 9, 5, 2)
+
+
+GAMES = {"minecraft": g_minecraft, "sot": g_sot, "cities": g_cities, "ets2": g_truck, "isonzo": g_isonzo, "tlou": g_tlou}
 GAME_LED = {"minecraft": (0, 10, 0), "sot": (0, 6, 8), "cities": (10, 8, 0), "ets2": (12, 4, 0),
-            "isonzo": (3, 1, 0), "tlou": (0, 3, 1)}
+            "isonzo": (8, 6, 0), "tlou": (2, 8, 2)}
+
+
+# ---------------------------------------------------------------- musica e video
+
+def s_music(t):
+    sway, b = math.sin(t * PI) * 12, -math.sin(PI * ((t * 2) % 1)) * 5
+    face("music", t, sway, b - 4, 0.66)
+    headphones(sway, b - 7, 30)
+    notes_up(-74, 2, t, 10)
+    notes_up(76, -2, t + 0.5, 10)
+
+
+def popcorn(t, x, y):
+    P([x - 16, y - 12, x + 16, y - 12, x + 12, y + 20, x - 12, y + 20])
+    for i in (-1, 0, 1):
+        L([x + i * 10, y - 10, x + i * 8, y + 18], 2, 0)
+    for i in range(6):
+        E(x - 12 + i * 5, y - 14 - (i % 2) * 3, 4, 3.4)
+    p = (t * 1.3) % 1
+    E(x + 6, y - 18 - math.sin(p * PI) * 14, 2.8, 2.4)
+
+
+def s_video(t):
+    face("normal", t, -22, -10, 0.7, -4, 0, "surprised" if int(t / 3) % 3 == 2 else None)
+    popcorn(t, 62, 0)
+
+
+def fmt_time(s):
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def draw_media_footer(now):
+    """In basso: titolo che scorre e, sopra, una riga sottile che avanza col brano."""
+    oled.fill_rect(0, 53, 128, 11, 0)
+    b = state["media_pos"]
+    if b and b[1] > 0:
+        pos, dur, at = b
+        cur = min(dur, pos + max(0, time.ticks_diff(now, at)) // 1000)  # avanza anche tra un aggiornamento e l'altro
+        oled.hline(0, 54, 128, 1)
+        oled.fill_rect(0, 53, 128 * cur // dur, 3, 1)
+    song = state["song"]
+    if song:
+        oled.text(song, 128 - (now // 35) % (len(song) * 8 + 128), 57)
 
 
 # ---------------------------------------------------------------- OpenStreetMap
-# Consultazione: gli occhi esplorano la mappa dentro una lente d'ingrandimento.
-# Modifica: gli occhi disegnano un edificio nodo per nodo, come nell'editor iD.
 
-ROADS = ((0, 46, 128, 32), (26, 10, 40, 63), (88, 10, 100, 63), (0, 60, 128, 55))
-BLOCKS = ((48, 14, 12, 8), (106, 40, 14, 9), (6, 26, 12, 10), (56, 50, 14, 8))
-
-
-def draw_map(blocks=True):
-    for x1, y1, x2, y2 in ROADS:
-        oled.line(x1, y1, x2, y2, 1)
-    for x in range(0, 128, 2):  # fiume
-        oled.pixel(x, 21 + int(3 * math.sin(x / 10)), 1)
-    if blocks:
-        for x, y, w, h in BLOCKS:
-            oled.rect(x, y, w, h, 1)
+def map_bg():
+    L([-99, -8, 99, -2], 5)
+    L([-20, -50, -14, 50], 5)
+    L([-99, 34, 99, 26], 4)
+    L([24, -50, 30, 50], 3)
+    for x, y, w, h in ((-30, -40, 22, 16), (0, -42, 18, 22), (-82, 2, 26, 18), (-50, 20, 24, 20), (8, -10, 14, 12)):
+        SR(x, y, w, h)
 
 
-def draw_osm_view(now):
-    draw_map()
-    # segnaposto che rimbalza
-    px, py = 104, 24 - abs(int(3 * math.sin(now / 200)))
-    oled.poly(0, 0, array("h", [px - 4, py + 1, px + 4, py + 1, px, py + 9]), 1, True)
-    oled.ellipse(px, py, 4, 4, 1, True)
-    oled.ellipse(px, py, 1, 1, 0, True)
-    # lente che gira per la mappa, con gli occhioni dentro
-    t = now / 1600
-    lx, ly = 52 + int(26 * math.sin(t)), 38 + int(9 * math.sin(t * 1.7))
-    for o in range(3):  # manico
-        oled.line(lx + 10 + o, ly + 10, lx + 17 + o, ly + 17, 1)
-    oled.ellipse(lx, ly, 14, 14, 0, True)
-    oled.ellipse(lx, ly, 14, 14, 1, False)
-    oled.ellipse(lx, ly, 13, 13, 1, False)
-    draw_buddy(lx - 11, ly - 10, 22, 20, look=int(2 * math.cos(t)))
+def s_osm_view(t):
+    map_bg()
+    lx, ly = math.sin(t * 0.6) * 40, math.sin(t * 0.9) * 10
+    E(lx, ly, 34, 34, 0)
+    A(lx, ly, 34, 0, 2 * PI, 4)
+    L([lx + 24, ly + 24, lx + 40, ly + 40], 6)
+    face("happy", t, lx, ly + 1, 0.48)
 
 
-BUILDINGS = (((72, 22), (104, 22), (104, 36), (92, 36), (92, 50), (72, 50)),
-             ((66, 20), (100, 20), (100, 48), (66, 48)),
-             ((68, 32), (86, 18), (106, 32), (106, 52), (68, 52)))
-osm_edit = {"shape": 0, "n": 1, "step": -1}
+def s_osm_edit(t):
+    map_bg()
+    pts = ((-10, -6), (40, -10), (44, 26), (-6, 30))
+    n = int(t * 1.2) % 6
+    for i in range(min(n, 4)):
+        if i < n - 1 or n >= 4:
+            L([pts[i][0], pts[i][1], pts[(i + 1) % 4][0], pts[(i + 1) % 4][1]], 2.2)
+    for i in range(min(n + 1, 4)):
+        E(pts[i][0], pts[i][1], 3.4, 3.4)
+    c = pts[min(n, 3)]
+    P([c[0] + 2, c[1] + 2, c[0] + 2, c[1] + 14, c[0] + 6, c[1] + 10, c[0] + 11, c[1] + 10])
+    R(-99, -50, 64, 44, 6, 0)
+    face("work", t, -67, -30, 0.4, 6, 3)
 
 
-def draw_osm_edit(now):
-    draw_map(blocks=False)
-    pts = BUILDINGS[osm_edit["shape"]]
-    step = now // 450
-    if step != osm_edit["step"]:  # ogni 450 ms aggiunge un nodo; chiuso l'edificio, ne inizia un altro
-        osm_edit["step"] = step
-        osm_edit["n"] += 1
-        if osm_edit["n"] > len(pts) + 5:
-            osm_edit["shape"] = (osm_edit["shape"] + 1) % len(BUILDINGS)
-            osm_edit["n"] = 1
-            pts = BUILDINGS[osm_edit["shape"]]
-    n = osm_edit["n"]
-    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-    oled.fill_rect(min(xs) - 3, min(ys) - 3, max(xs) - min(xs) + 7, max(ys) - min(ys) + 7, 0)
-    closed = n > len(pts)
-    flat = array("h", [c for p in pts for c in p])
-    if closed:  # edificio finito: area riempita a righe, come un'area selezionata
-        oled.poly(0, 0, flat, 1, False)
-        for y in range(min(ys) + 2, max(ys), 3):
-            for x in range(min(xs) + 2, max(xs), 2):
-                if (x + y) % 4 == 0:
-                    oled.pixel(x, y, 1)
-    placed = pts[:min(n, len(pts))]
-    for (x1, y1), (x2, y2) in zip(placed, placed[1:] + (pts[:1] if closed else ())):
-        oled.line(x1, y1, x2, y2, 1)
-        oled.line(x1, y1 + 1, x2, y2 + 1, 1)
-    for x, y in placed:  # nodi: quadratini bianchi col centro nero
-        oled.fill_rect(x - 2, y - 2, 5, 5, 1)
-        oled.pixel(x, y, 0)
-    # matita: dall'ultimo nodo va verso il prossimo, tirando la linea "elastica"
-    if closed:
-        tx, ty = pts[0]
+# ---------------------------------------------------------------- frasi (nuvoletta)
+
+def wrap(text, width=15, rows=2):
+    lines, cur = [], ""
+    for word in text.split():
+        if cur and len(cur) + 1 + len(word) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = (cur + " " + word).strip()
+    lines.append(cur)
+    return [l[:width] for l in lines[:rows]]
+
+
+SPEECH_MOOD = ("happy", "excited", "love", "surprised", "sad", "sleepy", "bored")
+
+
+def s_speech(emo, text, t):
+    face(emo if emo in SPEECH_MOOD else "normal", t, -72, 8, 0.42, 0, 0, "talk")
+    R(-46, -48, 144, 72, 10)
+    P([-46, -2, -58, 10, -34, 6])
+    lines = wrap(text, 10, 4)
+    for i, l in enumerate(lines):
+        px, py = mp(26, -12)
+        oled.text(l, px - 4 * len(l), py - 4 + round((i - (len(lines) - 1) / 2) * 10), 0)
+
+
+# ---------------------------------------------------------------- meteo (animazione ogni tanto)
+# Non è una pagina: ogni 4-7 minuti (anche mentre programmi, sei via o di notte), per 8 secondi
+# reagisce al tempo che fa: trema, suda, apre l'ombrello, mette gli occhiali da sole...
+
+WEATHER_ANIM_MS = 8000
+WEATHER_EVERY = (4 * 60000, 7 * 60000)
+WEATHER_LED = {"cold": (0, 4, 12), "hot": (14, 4, 0), "rain": (0, 2, 10), "snow": (8, 8, 10),
+               "storm": (4, 0, 8), "sun": (14, 10, 0), "moon": (2, 2, 6), "fog": (3, 3, 3),
+               "cloud": (4, 5, 6)}
+wx = {"kind": None, "until": 0, "next": None, "forced": False, "inverted": False, "turn": False}
+
+
+def sweat_drop(x, y):  # in pixel (la usa la mascotte di Claude)
+    oled.ellipse(x, y, 2, 2, 1, True)
+    oled.poly(0, 0, array("h", [x - 2, y - 1, x + 2, y - 1, x, y - 6]), 1, True)
+
+
+def sunglasses(ex, ey):
+    for s in (-1, 1):
+        R(ex + s * 28 - 18, ey - 13, 36, 26, 9)
+        R(ex + s * 28 - 15, ey - 10, 30, 20, 7, 0)
+        L([ex + s * 28 - 9, ey + 5, ex + s * 28 - 1, ey - 5], 1.4)
+    R(ex - 10, ey - 9, 20, 3)
+    L([ex - 46, ey - 8, -99, ey - 10], 2)
+    L([ex + 46, ey - 8, 99, ey - 10], 2)
+
+
+def sun_corner(t, x=80, y=-34):
+    E(x, y, 8, 8)
+    for i in range(8):
+        a = i * 0.785 + t * 0.6
+        L([x + math.cos(a) * 11, y + math.sin(a) * 11, x + math.cos(a) * 15, y + math.sin(a) * 15], 2)
+
+
+def umbrella(t):
+    E(0, -16, 70, 30, 1, True, 0b0011)
+    for x in range(-60, 61, 20):
+        E(x, -16, 10, 4, 0, True, 0b0011)
+    L([0, -46, 0, -50], 2)
+    for i in range(16):
+        x = -96 + (i * 37) % 192
+        y = -50 + (t * 60 + i * 9) % 6 if abs(x) < 72 else -50 + (t * 90 + i * 17) % 100
+        if abs(x) >= 72:
+            L([x, y, x - 1, y + 5], 1.4)
+    L([0, -16, 0, 44], 2.4)
+
+
+def flakes(t, n):
+    for i in range(n):
+        sparkle(-96 + (i * 37 + math.sin(t * 0.8 + i) * 6) % 192, -50 + (t * 16 + i * 29) % 100, 1.8)
+
+
+def storm_face(t, k):  # da tranquillo (k = 0) a spaventato (k = 1)
+    v_save()
+    v_tr((1.5 if int(t * 30) % 2 else -1.5) * k if k > 0.6 else 0, 14)
+    v_sc(0.8)
+    for sd in (-1, 1):
+        ex, ey, w = sd * 28, -2 - 2 * (1 - k), 26 + 4 * k
+        h = (34 + 4 * k) * (blinkf(t) if k < 0.05 else 1)
+        R(ex - w / 2, ey - h / 2, w, max(2.5, h), 8 + (w / 2 - 8) * k)
+        if k > 0.15:
+            E(ex, ey, 5.5 * k, 5.5 * k, 0)
+        brow(ex, ey - h / 2 - 8 - 10 * k, sd * 0.12 * (1 - k))
+    if k < 0.25:
+        mouth("normal", t)
     else:
-        (x1, y1), (x2, y2) = pts[n - 1], pts[n % len(pts)]
-        f = (now % 450) / 450
-        tx, ty = int(x1 + (x2 - x1) * f), int(y1 + (y2 - y1) * f)
-        oled.line(x1, y1, tx, ty, 1)
-    for o in range(3):
-        oled.line(tx + 2 + o, ty - 2, tx + 12 + o, ty - 12, 1)
-    oled.line(tx + 3, ty - 3, tx + 13, ty - 13, 0)
-    oled.pixel(tx, ty, 1)
-    oled.pixel(tx + 1, ty - 1, 1)
-    # gli occhioni, in basso a sinistra, guardano l'edificio
-    oled.fill_rect(0, 32, 44, 32, 0)
-    draw_buddy(4, 34, 36, 28, look=2)
+        E(0, 26 + k, 2 + 4 * k, 2 + 5.5 * k)
+    v_restore()
 
 
-OSM_SCENES = {"view": draw_osm_view, "edit": draw_osm_edit}
+def s_weather(kind, now, t):
+    if kind == "sun":
+        face("happy", t, 0, 4)
+        sunglasses(0, 2)
+        sun_corner(t)
+    elif kind == "rain":
+        umbrella(t)
+        face("normal", t, 0, 14, 0.8, 0, 2)
+    elif kind == "storm":
+        ph = (now % 1800) / 1000
+        fear = ph / 0.08 if ph < 0.08 else 1 if ph < 0.5 else max(0, 1 - (ph - 0.5) / 0.7)
+        umbrella(t)
+        storm_face(t, fear)
+        if ph < 0.25:
+            P([-86, -50, -74, -50, -80, -32, -70, -32, -88, -4, -82, -26, -90, -26])
+    elif kind == "snow":
+        flakes(t, 18)
+        face("happy", t, 0, 4)
+    elif kind == "cold":
+        face("cold", t, 0, -4)
+        R(-50, 36, 100, 10, 5)
+        for x in range(-44, 50, 14):
+            R(x, 37, 6, 8, 0, 0)
+        if int(t * 2.5) % 2:
+            T("Brrr!", 76, -38)
+    elif kind == "hot":
+        face("hot", t, 0, 2)
+        sun_corner(t)
+        sweat(-60, -14 + (t * 18) % 26)
+        sweat(62, -6 + (t * 18 + 13) % 26)
+        for x in range(-96, 99, 6):
+            R(x, 46 + (1 if (x // 6 + int(t * 6)) % 4 < 2 else 0), 4, 1.6)
+    elif kind == "moon":
+        E(78, -32, 10, 10)
+        E(83, -36, 9, 9, 0)
+        for i, (x, y) in enumerate(((-86, -36), (-50, -20), (-12, -42), (40, -30), (-70, 40), (66, 38), (24, 42))):
+            ph = int(t * 3 + i) % 3
+            if ph:
+                sparkle(x, y, 2.5 if ph == 1 else 1)
+        face("sleepy", t, 0, 2)
+    elif kind == "fog":
+        face("normal", t, 0, 2, 1, math.sin(t) * 4)
+        for r in range(5):
+            y, off = -40 + r * 20, (t * 12 % 40) * (1 if r % 2 else -1)
+            for x in range(-140, 99, 40):
+                R(x + off, y, 28, 5, 2, (r + x // 40) % 2)
+    else:  # nuvoloso
+        x = 110 - (t * 22) % 240
+        face("normal", t, 0, 8, 1, max(-6, min(6, x / 12)), -4)
+        for dx, dy, r in ((0, -36, 10), (12, -42, 12), (24, -36, 10), (12, -34, 10)):
+            E(x + dx, dy, r, r)
 
 
-# ---------------------------------------------------------------- musica
-# Cuffie in testa e occhioni che ballano a tempo, note che escono dalle cuffie e il titolo
-# del brano che scorre in basso.
+# ---------------------------------------------------------------- feste (stesso giro del meteo)
+# Il PC manda "F <festa>" nei giorni di festa; l'animazione si alterna con quella del meteo.
 
-BEAT_MS = 500  # circa 120 battiti al minuto
-DANCE = ("normal", "happy", "normal", "love")  # espressione che cambia ogni 4 battiti
-notes = []  # [x, y, velocità orizzontale]
-music_fx = {"last": None, "next_note": 0}
+FEAST_LED = {"halloween": (14, 5, 0), "natale": (12, 0, 0), "capodanno": (10, 8, 0), "befana": (6, 0, 8),
+             "sanvalentino": (14, 0, 4), "carnevale": (8, 0, 10), "pasqua": (8, 8, 2), "italia": (0, 10, 0),
+             "ferragosto": (14, 9, 0)}
+
+
+def pumpkin(x, y):
+    E(x, y, 13, 10)
+    L([x, y - 10, x + 1, y - 14], 3)
+    P([x - 8, y - 1, x - 3, y - 1, x - 5.5, y - 6], 0)
+    P([x + 3, y - 1, x + 8, y - 1, x + 5.5, y - 6], 0)
+    R(x - 6, y + 3, 12, 3, 0, 0)
+
+
+def bat(x, y, t):
+    up = int(t * 7) % 2
+    E(x, y, 3, 3)
+    P([x - 2, y, x - 13, y - 6 if up else y + 4, x - 6, y + 2])
+    P([x + 2, y, x + 13, y - 6 if up else y + 4, x + 6, y + 2])
+
+
+def burst(x, y, p):
+    r1, r2 = 3 + 16 * p, 8 + 22 * p
+    for i in range(12):
+        a = i * 0.5236
+        L([x + math.cos(a) * r1, y + math.sin(a) * r1, x + math.cos(a) * r2, y + math.sin(a) * r2], 1.6)
+
+
+def egg(x, y):
+    E(x, y, 8, 10.5)
+    L([x - 7, y, x - 4, y - 3, x - 1, y, x + 2, y - 3, x + 5, y], 1.4, 0)
+    R(x - 7, y + 4, 15, 2, 0, 0)
+
+
+def flag(x, y, t):  # tricolore che sventola: verde a puntini, bianco vuoto, rosso pieno
+    L([x - 1, y, x - 1, y + 34], 1.5)
+    for col in range(14):
+        dy = 2.4 * math.sin(t * 6 + col / 2)
+        cx = x + col * 2
+        if col < 5:
+            for yy in range(0, 20, 4):
+                R(cx, y + dy + yy + (col % 2) * 2, 1.6, 1.6)
+        elif col >= 9:
+            R(cx, y + dy, 2, 20)
+        else:
+            R(cx, y + dy, 2, 1.6)
+            R(cx, y + dy + 18.4, 2, 1.6)
+
+
+def s_feast(kind, t):
+    if kind == "halloween":
+        E(78, -34, 11, 11)
+        for i in range(3):
+            bat(-110 + (t * 30 + i * 80) % 230, -38 + i * 8 + math.sin(t * 3 + i) * 4, t + i * 0.1)
+        face("stress", t, 0, 10, 0.82, 0, 0, "excited")
+        P([-28, -14, 28, -14, 18, -50])
+        R(-54, -17, 108, 7, 3)
+        R(-24, -22, 48, 4, 0, 0)
+        pumpkin(-80, 38)
+        pumpkin(80, 38)
+    elif kind == "natale":
+        flakes(t, 14)
+        face("happy", t, 0, 10, 0.85)
+        P([-48, -18, 40, -18, 64, -44])
+        E(66, -44, 6, 6)
+        R(-54, -24, 100, 9, 4)
+        L([-54, -25, 46, -25], 1.2, 0)
+        P([-80, -34, -94, -6, -66, -6])
+        P([-80, -22, -98, 10, -62, 10])
+        R(-83, 10, 6, 7)
+    elif kind == "capodanno":
+        for i, (x, y) in enumerate(((-74, -26), (74, -22), (-20, -40), (40, 34), (-70, 30))):
+            p = (t * 0.6 + i / 5) % 1
+            if p < 0.8:
+                burst(x, y, p / 0.8)
+        face("excited", t, 0, 10, 0.8)
+        P([-12, -16, 12, -16, 0, -46])
+        E(0, -46, 3.5, 3.5)
+    elif kind == "befana":
+        x, y = 110 - (t * 26) % 240, -32 + math.sin(t * 5) * 3
+        L([x - 22, y + 8, x + 18, y + 3], 2)
+        for d in range(5):
+            L([x + 18, y + 3, x + 28, y - 3 + d * 3], 1.2)
+        R(x - 7, y - 7, 10, 12, 3)
+        E(x - 2, y - 9, 3.5, 3.5)
+        P([x - 9, y - 11, x + 5, y - 11, x - 3, y - 24])
+        face("surprised", t, 0, 12, 0.75, max(-6, min(6, x / 14)), -3)
+    elif kind == "sanvalentino":
+        for i in range(8):
+            x = -86 + (i * 7) % 20 if i % 2 else 86 - (i * 7) % 20
+            heart(x, 56 - (t * 24 + i * 29) % 120, 8 + (i % 3) * 3)
+        face("love", t, 0, 4)
+    elif kind == "carnevale":
+        for i in range(20):
+            R(-96 + (i * 41 + math.sin(t * 2 + i) * 5) % 192, -50 + (t * 26 + i * 13) % 100, 2.6, 2.6)
+        for s in (-1, 1):
+            R(s * 28 - 22, -28, 44, 44, 14)
+            R(s * 28 - 19, -25, 38, 38, 12, 0)
+        R(-8, -18, 16, 8)
+        face("happy", t, 0, 4, 0.9)
+    elif kind == "pasqua":
+        for s in (-1, 1):
+            ex = s * 20 + (math.sin(t * 4) * 2 if s > 0 else 0)
+            E(ex, -38, 8, 16)
+            E(ex, -36, 4, 12, 0)
+        face("happy", t, 0, 10, 0.82)
+        egg(-80, 38)
+        egg(80, 38)
+    elif kind == "italia":
+        flag(-96, -26, t)
+        flag(70, -26, t + 0.4)
+        face("happy", t, 0, 4, 0.9)
+    else:  # ferragosto
+        face("happy", t, 0, 4)
+        sunglasses(0, 2)
+        sun_corner(t)
+        by = 38 - abs(math.sin(t * 4.5)) * 18
+        E(-78, by, 10, 10)
+        L([-78, by - 10, -78, by + 10], 1.4, 0)
+        A(-78, by, 6, -1.2, 1.2, 1.2, 0)
+
+
+def weather_led(kind, now):
+    if kind == "storm" and now % 1800 < 120:
+        return (16, 16, 16)
+    if kind == "capodanno":  # fuochi colorati
+        return wheel(now // 8 % 256)
+    return FEAST_LED.get(kind) or WEATHER_LED.get(kind, COLORS["normal"])
 
 
 def wheel(pos):
@@ -815,137 +1242,13 @@ def wheel(pos):
     return (pos * 12 // 85, 0, 12 - pos * 12 // 85)
 
 
-def draw_note(x, y):
-    oled.ellipse(x, y, 2, 2, 1, True)
-    oled.vline(x + 2, y - 7, 7, 1)
-    oled.line(x + 2, y - 7, x + 5, y - 4, 1)
-
-
-def draw_headphones(cx, top, half_w, cup_y, cup_h):
-    oled.ellipse(cx, cup_y, half_w, cup_y - top, 1, False, 0b0011)  # archetto
-    oled.ellipse(cx, cup_y, half_w - 1, cup_y - top - 1, 1, False, 0b0011)
-    for x, inner in ((cx - half_w - 4, 5), (cx + half_w - 3, 2)):  # padiglioni
-        rrect(x, cup_y - 2, 8, cup_h, 3)
-        oled.vline(x + inner, cup_y + 1, cup_h - 6, 0)
-
-
-def draw_music(now):
-    beat = (now % BEAT_MS) / BEAT_MS
-    n = now // BEAT_MS
-    bounce = -int(5 * math.sin(math.pi * beat))  # saltello a ogni battito
-    ox = int(7 * math.sin(now * math.pi / (2 * BEAT_MS)))  # dondolio a destra e sinistra
-    cy = 30 + bounce
-    h = 22 if beat < 0.12 else 26  # si schiaccia sul battito
-    h = max(2, int(h * face["k"]))
-    m = DANCE[(n // 4) % len(DANCE)]
-    for cx, side in ((47 + ox, -1), (81 + ox, 1)):
-        draw_eye(cx, cy, 25, h, m, side)
-    draw_headphones(64 + ox, cy - 22, 36, cy - 6, 16)
-    # note che escono dalle cuffie e salgono
-    dt = 0 if music_fx["last"] is None else max(0, min(100, time.ticks_diff(now, music_fx["last"])))
-    music_fx["last"] = now
-    if time.ticks_diff(now, music_fx["next_note"]) > 0 and len(notes) < 6:
-        left = random.random() < 0.5
-        notes.append([24 + ox if left else 104 + ox, cy, -0.012 if left else 0.012])
-        music_fx["next_note"] = time.ticks_add(now, random.randint(400, 900))
-    for note in notes[:]:
-        note[1] -= 0.02 * dt
-        note[0] += note[2] * dt
-        if note[1] < 8:
-            notes.remove(note)
-        else:
-            draw_note(int(note[0]), int(note[1]))
-    draw_media_footer(now)
-
-
-def fmt_time(s):
-    return "%d:%02d" % (s // 60, s % 60)
-
-
-def draw_media_footer(now):
-    """In basso: barra del tempo (trascorso e durata) e titolo che scorre."""
-    b = state["media_pos"]
-    if b and b[1] > 0:
-        pos, dur, at = b
-        cur = min(dur, pos + max(0, time.ticks_diff(now, at)) // 1000)  # avanza anche tra un aggiornamento e l'altro
-        left, right = fmt_time(cur), fmt_time(dur)
-        oled.fill_rect(0, 45, 128, 10, 0)
-        oled.text(left, 0, 46)
-        oled.text(right, 128 - 8 * len(right), 46)
-        x0, x1 = 8 * len(left) + 3, 128 - 8 * len(right) - 3
-        oled.rect(x0, 47, x1 - x0, 5, 1)
-        oled.fill_rect(x0 + 1, 48, (x1 - x0 - 2) * cur // dur, 3, 1)
-    song = state["song"]
-    if song:
-        span = len(song) * 8 + 128
-        oled.fill_rect(0, 55, 128, 9, 0)
-        oled.text(song, 128 - (now // 35) % span, 56)
-
-
-def draw_popcorn(x, y):
-    oled.poly(0, 0, array("h", [x, y, x + 18, y, x + 15, y + 20, x + 3, y + 20]), 1, True)  # secchiello
-    for i in range(3):  # strisce
-        oled.line(x + 4 + i * 4, y + 2, x + 5 + i * 3, y + 18, 0)
-    for dx, dy in ((2, -1), (7, -3), (12, -2), (16, -1), (9, 0)):  # popcorn che trabocca
-        oled.ellipse(x + dx, y + dy, 3, 3, 1, True)
-        oled.pixel(x + dx, y + dy, 0)
-
-
-def draw_video(now):
-    """Guarda un video: occhi rivolti allo schermo (cioè verso di te), con la luce che
-    tremola, e il secchiello dei popcorn con qualche chicco che salta fuori."""
-    flicker = 2 if (now // 180) % 5 == 0 else 0
-    h = max(2, int((22 - flicker) * face["k"]))
-    dx = max(-3, min(3, face["look"] // 3))
-    for cx, side in ((38, -1), (72, 1)):
-        draw_eye(cx + dx, 22, 24, h, "normal", side)
-    draw_popcorn(100, 18)
-    t = (now % 1400) / 1400  # chicco che salta con una parabola
-    oled.ellipse(109 + int(12 * t), 14 - int(28 * t - 30 * t * t), 2, 2, 1, True)
-    draw_media_footer(now)
-
-
-# ---------------------------------------------------------------- frasi (nuvoletta)
-
-def wrap(text, width=15):
-    lines, cur = [], ""
-    for word in text.split():
-        if cur and len(cur) + 1 + len(word) > width:
-            lines.append(cur)
-            cur = word
-        else:
-            cur = (cur + " " + word).strip()
-    lines.append(cur)
-    return [l[:width] for l in lines[:2]]
-
-
-def draw_speech(emo, text, k, now):
-    rrect(0, 0, 128, 25, 6)
-    rrect(2, 2, 124, 21, 5, 0)
-    oled.poly(0, 0, array("h", [54, 23, 70, 23, 57, 32]), 1, True)  # codina della nuvoletta
-    oled.poly(0, 0, array("h", [57, 21, 67, 21, 58, 28]), 0, True)
-    lines = wrap(text)
-    for i, l in enumerate(lines):
-        center_text(l, (8 if len(lines) == 1 else 4 + i * 9))
-    bounce = -abs(int(2 * math.sin(now / 140))) if emo in ("excited", "love", "happy") else 0
-    h = max(2, int(24 * k))
-    for cx, side in ((44, -1), (84, 1)):
-        draw_eye(cx, 48 + bounce, 26, h, emo, side)
-
-
 def top_bar(m, now):
-    if m == "sleep":
-        n = (now // 500) % 4
-        for i in range(n):
-            oled.text("z", 104 + i * 7, 12 - i * 5)
-    elif m == "ask":
+    if m == "ask":
         if (now // 400) % 2:
             center_text("Ti cerco!", 0)
     elif m == "done":
         center_text("Fatto!", 0)
-    elif m in ("work", "code", "game", "osm", "music", "video"):
-        pass  # la scena riempie lo schermo
-    else:
+    elif m in ("normal", "happy", "stress", "bored", "sleepy"):
         # la riga in alto ruota ogni 4 s: ora e CPU, GPU, consumi di Claude
         u, g = state["usage"], state["gpu"]
         phase = (now // 4000) % 3
@@ -962,275 +1265,6 @@ def top_bar(m, now):
             oled.text(state["clock"], 0, 0)
             s = "CPU%3d%%" % state["cpu"]
             oled.text(s, 128 - 8 * len(s), 0)
-
-
-# ---------------------------------------------------------------- meteo (animazione ogni tanto)
-# Non è una pagina: ogni 4-7 minuti (anche mentre programmi, sei via o di notte), per 8 secondi
-# reagisce al tempo che fa: trema, suda, apre l'ombrello, mette gli occhiali da sole...
-
-WEATHER_ANIM_MS = 8000
-WEATHER_EVERY = (4 * 60000, 7 * 60000)
-WEATHER_LED = {"cold": (0, 4, 12), "hot": (14, 4, 0), "rain": (0, 2, 10), "snow": (8, 8, 10),
-               "storm": (4, 0, 8), "sun": (14, 10, 0), "moon": (2, 2, 6), "fog": (3, 3, 3),
-               "cloud": (4, 5, 6)}
-wx = {"kind": None, "until": 0, "next": None, "forced": False, "inverted": False, "turn": False}
-
-
-def sweat_drop(x, y):
-    oled.ellipse(x, y, 2, 2, 1, True)
-    oled.poly(0, 0, array("h", [x - 2, y - 1, x + 2, y - 1, x, y - 6]), 1, True)
-
-
-def draw_sun(now):
-    oled.ellipse(117, 9, 5, 5, 1, True)
-    for i in range(8):  # raggi che girano
-        a = i * 0.785 + now / 1500
-        oled.line(117 + int(7 * math.cos(a)), 9 + int(7 * math.sin(a)),
-                  117 + int(10 * math.cos(a)), 9 + int(10 * math.sin(a)), 1)
-
-
-def draw_umbrella(now):
-    oled.ellipse(64, 18, 46, 14, 1, True, 0b0011)  # tela
-    for x in range(25, 110, 13):  # bordo a festoni
-        oled.ellipse(x, 18, 6, 3, 0, True, 0b0011)
-    oled.vline(64, 1, 4, 1)  # puntale
-    oled.fill_rect(64, 18, 2, 40, 1)  # manico, passa tra gli occhi
-    oled.ellipse(60, 58, 5, 4, 1, False, 0b1100)
-    for i, x in enumerate((3, 9, 15, 113, 119, 125, 30, 48, 80, 98)):
-        if 18 < x < 110:  # sopra l'ombrello le gocce si fermano sulla tela
-            y = (now // 25 + i * 17) % 12 - 8
-        else:
-            y = (now // 25 + i * 17) % 70 - 6
-        oled.vline(x, y, 4, 1)
-
-
-def draw_sunglasses(ox):
-    for cx in (36 + ox, 92 + ox):
-        rrect(cx - 21, 24, 42, 26, 7)
-        rrect(cx - 19, 26, 38, 22, 6, 0)  # lente scura
-        oled.line(cx - 13, 40, cx - 5, 31, 1)  # riflessi
-        oled.line(cx - 9, 43, cx - 2, 35, 1)
-    oled.fill_rect(57 + ox, 29, 14, 2, 1)  # ponte
-    oled.hline(0, 28, 15 + ox, 1)  # stanghette
-    oled.hline(113 + ox, 28, 15 - ox, 1)
-
-
-def draw_weather(kind, now, k, lx):
-    """Occhi + effetti per l'animazione meteo `kind`."""
-    if kind in FEAST_LED:
-        draw_feast(kind, now, k, lx)
-        return
-    ox = int(lx) // 2
-    if kind == "sun":
-        draw_sunglasses(ox)
-        draw_sun(now)
-        return
-    m, h, oy = "normal", EYE_H, 0
-    if kind == "cold":  # trema
-        ox += random.choice((-2, 2))
-        h = EYE_H * 85 // 100
-    elif kind == "hot":
-        m = "sleepy"
-    elif kind == "fog":
-        h = EYE_H // 2
-    elif kind == "storm":
-        m = "surprised"
-    elif kind == "snow":
-        m = "happy"
-    elif kind == "cloud":
-        oy = -3
-    h = max(2, int(h * k))
-    for cx, side in ((36, -1), (92, 1)):
-        draw_eye(cx + ox, EYE_Y + oy, EYE_W, h, m, side)
-
-    if kind in ("rain", "storm"):
-        draw_umbrella(now)
-        if kind == "storm" and now % 1800 < 120:  # fulmine
-            oled.poly(0, 0, array("h", [10, 0, 18, 0, 13, 9, 19, 9, 7, 26, 10, 13, 5, 13]), 1, True)
-    elif kind == "cold":
-        if (now // 400) % 2:
-            center_text("Brrr!", 0)
-        for x in (5, 121):  # tremolio ai lati
-            for y in range(26, 52, 5):
-                oled.line(x - 1, y, x + 1, y + 2, 1)
-                oled.line(x + 1, y + 2, x - 1, y + 4, 1)
-    elif kind == "hot":
-        draw_sun(now)
-        for x, phase in ((12, 0), (116, 12)):  # gocce di sudore che scendono
-            sweat_drop(x, 24 + (now // 45 + phase) % 26)
-        shift = (now // 150) % 8  # aria che tremola in basso
-        for x in range(0, 128, 4):
-            oled.hline(x, 61 + (1 if (x // 4 + shift) % 4 < 2 else 0), 2, 1)
-    elif kind == "snow":
-        for i in range(14):
-            x = (i * 37 + int(6 * math.sin(now / 500 + i))) % 128
-            y = (now // 45 + i * 29) % 72 - 4
-            for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
-                oled.pixel(x + dx, y + dy, 1)
-    elif kind == "moon":
-        oled.ellipse(114, 11, 9, 9, 1, True)
-        oled.ellipse(118, 8, 8, 8, 0, True)
-        for i, (sx, sy) in enumerate(((8, 6), (30, 13), (62, 4), (88, 12), (100, 58), (20, 58))):
-            if (now // 300 + i) % 3:
-                oled.pixel(sx, sy, 1)
-                if (now // 300 + i) % 3 == 1:
-                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                        oled.pixel(sx + dx, sy + dy, 1)
-    elif kind == "fog":  # banchi di nebbia che scorrono, anche davanti agli occhi
-        for r, y in enumerate((18, 29, 41, 52)):
-            off = (now // 60) % 14 * (1 if r % 2 else -1)
-            for x in range(-14 + off, 128, 14):
-                over_eye = 21 <= y <= 57 and (18 <= x <= 54 or 74 <= x <= 110)
-                oled.hline(x, y, 8, 0 if over_eye else 1)
-    elif kind == "cloud":  # nuvola che attraversa lo schermo in alto
-        left = WEATHER_ANIM_MS - time.ticks_diff(wx["until"], now)
-        cx = 150 - left * 190 // WEATHER_ANIM_MS
-        for dx, dy, r in ((0, 10, 7), (9, 6, 8), (18, 10, 7), (9, 12, 6)):
-            oled.ellipse(cx + dx, dy, r, r, 1, True)
-
-
-# ---------------------------------------------------------------- feste (stesso giro del meteo)
-# Il PC manda "F <festa>" nei giorni di festa; l'animazione si alterna con quella del meteo.
-
-FEAST_LED = {"halloween": (14, 5, 0), "natale": (12, 0, 0), "capodanno": (10, 8, 0), "befana": (6, 0, 8),
-             "sanvalentino": (14, 0, 4), "carnevale": (8, 0, 10), "pasqua": (8, 8, 2), "italia": (0, 10, 0),
-             "ferragosto": (14, 9, 0)}
-
-
-def draw_bat(x, y, now):
-    up = (now // 150) % 2
-    oled.fill_rect(x - 1, y - 1, 3, 3, 1)
-    oled.line(x - 1, y, x - 6, y - 3 if up else y + 2, 1)
-    oled.line(x + 1, y, x + 6, y - 3 if up else y + 2, 1)
-
-
-def draw_pumpkin(x, y):
-    oled.ellipse(x, y, 7, 5, 1, True)
-    oled.vline(x, y - 8, 3, 1)
-    oled.pixel(x - 3, y - 1, 0)
-    oled.pixel(x + 3, y - 1, 0)
-    oled.hline(x - 3, y + 2, 7, 0)
-
-
-def draw_burst(cx, cy, t):
-    # fuoco d'artificio: raggi che si allargano (t da 0 a 1)
-    r1, r2 = int(2 + 10 * t), int(5 + 13 * t)
-    for i in range(8):
-        a = i * math.pi / 4
-        oled.line(cx + int(r1 * math.cos(a)), cy + int(r1 * math.sin(a)),
-                  cx + int(r2 * math.cos(a)), cy + int(r2 * math.sin(a)), 1)
-
-
-def draw_egg(x, y):
-    oled.ellipse(x, y, 5, 7, 1, False)
-    for dx in range(-4, 5, 2):  # zig-zag decorato
-        oled.pixel(x + dx, y + (dx // 2) % 2, 1)
-
-
-def draw_flag(x, y, now):
-    # tricolore che sventola: verde a puntini, bianco vuoto, rosso pieno
-    oled.vline(x - 1, y, 22, 1)
-    for col in range(18):
-        dy = int(1.5 * math.sin(now / 150 + col / 3))
-        if col < 6:
-            for yy in range(0, 12, 2):
-                oled.pixel(x + col, y + dy + yy + col % 2, 1)
-        elif col >= 12:
-            oled.vline(x + col, y + dy, 12, 1)
-        else:
-            oled.pixel(x + col, y + dy, 1)
-            oled.pixel(x + col, y + dy + 11, 1)
-
-
-def draw_feast(kind, now, k, lx):
-    ox = int(lx) // 2
-    m, h, oy = "normal", EYE_H, 0
-    if kind == "halloween":
-        m = "stress"
-    elif kind in ("natale", "capodanno", "pasqua", "ferragosto", "carnevale"):
-        m = "happy"
-    elif kind == "sanvalentino":
-        m = "love"
-    if kind in ("natale", "pasqua", "halloween"):  # cappello o orecchie in testa: occhi un po' più giù
-        oy, h = 3, EYE_H - 6
-    if kind == "ferragosto":
-        draw_sunglasses(ox)
-    else:
-        h = max(2, int(h * k))
-        for cx, side in ((36, -1), (92, 1)):
-            draw_eye(cx + ox, EYE_Y + oy, EYE_W, h, m, side)
-    t = now % 1600 / 1600
-
-    if kind == "halloween":  # cappello da strega, zucche e pipistrelli
-        oled.fill_rect(30 + ox, 19, 68, 3, 1)
-        oled.poly(0, 0, array("h", [44 + ox, 19, 84 + ox, 19, 74 + ox, 0]), 1, True)
-        oled.hline(48 + ox, 15, 33, 0)
-        draw_pumpkin(8, 56)
-        draw_pumpkin(119, 56)
-        for i in range(3):
-            draw_bat((now // 30 + i * 50) % 170 - 20, 6 + i * 4 + int(3 * math.sin(now / 200 + i)), now + i * 70)
-    elif kind == "natale":  # cappello di Babbo Natale e neve
-        oled.poly(0, 0, array("h", [26 + ox, 18, 100 + ox, 18, 112 + ox, 3]), 1, True)
-        oled.ellipse(114 + ox, 4, 3, 3, 1, True)
-        oled.fill_rect(22 + ox, 17, 84, 4, 1)
-        oled.hline(22 + ox, 16, 84, 0)
-        for i in range(8):
-            x, y = (i * 37) % 128, (now // 50 + i * 23) % 70 - 4
-            if not (18 <= x <= 110 and 15 <= y <= 60):
-                oled.pixel(x, y, 1)
-                oled.pixel(x + 1, y, 1)
-                oled.pixel(x, y + 1, 1)
-    elif kind == "capodanno":  # fuochi d'artificio
-        for i, (fx, fy) in enumerate(((9, 12), (118, 14), (64, 6))):
-            tt = (t + i / 3) % 1
-            if tt < 0.8:
-                draw_burst(fx, fy, tt / 0.8)
-        if (now // 400) % 2:
-            center_text("Auguri!", 56)
-    elif kind == "befana":  # la Befana sulla scopa attraversa il cielo
-        left = WEATHER_ANIM_MS - time.ticks_diff(wx["until"], now)
-        x = 140 - left * 180 // WEATHER_ANIM_MS
-        y = 8 + int(2 * math.sin(now / 200))
-        oled.line(x - 12, y + 4, x + 10, y + 1, 1)  # manico
-        for d in range(4):  # saggina
-            oled.line(x + 10, y + 1, x + 16, y - 2 + d * 2, 1)
-        oled.fill_rect(x - 4, y - 4, 5, 7, 1)  # mantello
-        oled.poly(0, 0, array("h", [x - 6, y - 4, x + 3, y - 4, x - 3, y - 11]), 1, True)  # cappello
-    elif kind == "sanvalentino":  # cuoricini che salgono
-        for i, x in enumerate((8, 120, 64, 14, 114)):
-            y = 64 - (now // 30 + i * 19) % 80
-            draw_heart(x, y, 8)
-    elif kind == "carnevale":  # mascherina e coriandoli
-        for cx in (36 + ox, 92 + ox):
-            rrect(cx - 22, 19, 44, 40, 10, 1)
-            rrect(cx - 20, 21, 40, 36, 9, 0)
-            draw_eye(cx, EYE_Y, EYE_W - 8, max(2, int((EYE_H - 8) * k)), "happy", 1)
-        for i in range(16):
-            x, y = (i * 41 + int(4 * math.sin(now / 300 + i))) % 128, (now // 40 + i * 13) % 68 - 2
-            oled.fill_rect(x, y, 2, 2, 1)
-    elif kind == "pasqua":  # orecchie da coniglio e ovetti
-        for ex in (48 + ox, 80 + ox):
-            oled.ellipse(ex, 8, 5, 10, 1, False, 0b0011)
-            oled.ellipse(ex, 8, 2, 7, 1, False, 0b0011)
-        draw_egg(8, 54)
-        draw_egg(120, 54)
-    elif kind == "italia":  # bandierine che sventolano
-        draw_flag(0, 40, now)
-        draw_flag(110, 40, now + 400)
-        center_text("Viva l'Italia", 0)
-    elif kind == "ferragosto":
-        draw_sun(now)
-        y = 58 - abs(int(8 * math.sin(now / 200)))  # pallone da spiaggia che rimbalza
-        oled.ellipse(64, y, 5, 5, 1, False)
-        oled.vline(64, y - 5, 11, 1)
-
-
-def weather_led(kind, now):
-    if kind == "storm" and now % 1800 < 120:
-        return (16, 16, 16)
-    if kind == "capodanno":  # fuochi colorati
-        return wheel(now // 8 % 256)
-    return FEAST_LED.get(kind) or WEATHER_LED.get(kind, COLORS["normal"])
 
 
 # ---------------------------------------------------------------- pagine (tasto BOOT)
@@ -1448,69 +1482,30 @@ def main():
             oled.show()
             time.sleep_ms(30)
             continue
+        t = (now % 3600000) / 1000  # secondi, ricominciano ogni ora (i float qui sono a 32 bit)
+        v_reset()
         if speaking:
-            draw_speech(msg[0], msg[1], k, now)
-            oled.show()
-            time.sleep_ms(30)
-            continue
-        if weather_on:
-            draw_weather(wx["kind"], now, k, lx)
-            oled.show()
-            time.sleep_ms(30)
-            continue
-        # forma e posizione degli occhi per ogni scena
-        if m == "ask":
-            w, h, eyes, ey = 40, 44, (36, 92), EYE_Y
-        elif m == "work":
-            w, h, eyes, ey = 32, 30, (26, 66), 40
-        elif m in SCENES:
-            w, h, eyes, ey = 24, 18, (46, 82), 13
-        else:
-            w, h, eyes, ey = EYE_W, EYE_H, (36, 92), EYE_Y
-        h = max(2, int(h * k))
-        if m == "sleep":
-            h = max(2, int(h * 0.6))
-        ox, oy = int(lx), int(ly)
-        if m in SCENES:  # occhi piccoli: movimenti più contenuti
-            ox, oy = ox // 2, max(-2, min(2, oy))
-        if m == "stress":
-            ox += random.randint(-1, 1)
-        elif m == "ask":
-            oy += int(2 * math.sin(now / 120))  # saltella
-        elif m == "done":
-            oy -= abs(int(4 * math.sin(now / 150)))  # saltella di gioia
-        face["k"], face["look"] = k, int(lx)
-        # scene con gli occhioni dentro (giochi conosciuti, OpenStreetMap)
-        scene_fn = None
-        if m == "game":
-            scene_fn = GAME_SCENES.get(state["detail"])
-        elif m == "osm":
-            scene_fn = OSM_SCENES.get(state["detail"])
-        elif m == "music":
-            scene_fn = draw_music
-        elif m == "video":
-            scene_fn = draw_video
-        if m in ACTIVITIES:  # Claude Code: la mascotte al posto degli occhioni
+            s_speech(msg[0], msg[1], t)
+        elif weather_on:
+            if wx["kind"] in FEAST_LED:
+                s_feast(wx["kind"], t)
+            else:
+                s_weather(wx["kind"], now, t)
+        elif m in ACTIVITIES:  # Claude Code: la mascotte
             draw_clawd(m, now, k)
-        elif not scene_fn:
-            for cx, side in ((eyes[0], -1), (eyes[1], 1)):
-                draw_eye(cx + ox, ey + oy, w, h, m, side)
-
-        if m == "code":
-            draw_laptop(now)
-            if state["music"]:  # programmi ascoltando musica: le cuffie in testa
-                draw_headphones(64 + ox, 1, 36, 10 + oy, 12)
+        elif m == "code":
+            s_code(t, state["music"])
         elif m == "game":
-            (scene_fn or draw_gamepad)(now)
-            label = GAME_LABELS.get(state["detail"])
-            if label:
-                center_text(label, 0)
+            GAMES.get(state["detail"], g_any)(t)
+        elif m == "osm":
+            (s_osm_edit if state["detail"] == "edit" else s_osm_view)(t)
         elif m in ("music", "video"):
-            scene_fn(now)
-        elif scene_fn:
-            scene_fn(now)
-            center_text(OSM_LABELS[state["detail"]], 0)
-        top_bar(m, now)
+            (s_music if m == "music" else s_video)(t)
+            draw_media_footer(now)
+        else:
+            s_mood(m, t)
+        if not speaking and not weather_on:
+            top_bar(m, now)
         if board:
             board.decorate(now)
         oled.show()
