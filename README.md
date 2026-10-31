@@ -79,6 +79,24 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 
 Scegli la città dal menu (**Cambia città...**). L'app legge il meteo da Open-Meteo ogni 15 minuti. Ogni 6-10 minuti, se il robot non sta facendo altro, per 8 secondi reagisce al tempo: trema col freddo (sotto i 5 °C), suda col caldo (da 29 °C), apre l'ombrello se piove, lampi col temporale, fiocchi con la neve, occhiali da sole col sereno, luna e stelle di notte, nebbia, nuvole. Quando il tempo cambia lo commenta. Per provarle: **Prova animazione → Meteo**.
 
+## Feste
+
+Nei giorni di festa l'animazione del meteo si alterna con una a tema, e il robot ti fa gli auguri appena sei al PC (e ogni tanto ne parla nelle chiacchiere):
+
+| Festa | Quando | Animazione |
+|---|---|---|
+| Capodanno | 31 dicembre, 1 gennaio | fuochi d'artificio e cappellino da festa |
+| Befana | 6 gennaio | la Befana sulla scopa attraversa il cielo |
+| San Valentino | 14 febbraio | occhi a cuore e cuoricini che salgono |
+| Carnevale | dal giovedì al martedì grasso | mascherina e coriandoli |
+| Pasqua | Pasqua e Pasquetta | orecchie da coniglio e ovetti colorati |
+| Festa della Repubblica e della Liberazione | 25 aprile, 2 giugno | tricolore che sventola |
+| Ferragosto | 15 agosto | occhiali da sole e pallone da spiaggia |
+| Halloween | 31 ottobre | cappello da strega, zucche, pipistrelli |
+| Natale | dall'8 dicembre al 5 gennaio | cappello di Babbo Natale, neve, alberello |
+
+Le date sono in `pc/feasts.py`. Per provarle: **Prova animazione → Feste**.
+
 ## Frasi
 
 Il robot dice qualcosa in una nuvoletta in base a cosa fai: quando apri un gioco, VS Code o OSM, quando torni al PC dopo una pausa, al mattino e a pranzo, se è tardi, dopo 90 minuti senza pause, dopo un'ora di codice, se CPU o GPU scottano, se i token di Claude stanno finendo, e ogni tanto per chiacchierare. Le frasi sono in `pc/personality.py`: modificale o aggiungine. Le chiacchiere a caso si spengono dal menu (**Chiacchiere**).

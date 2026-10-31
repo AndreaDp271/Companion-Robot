@@ -38,6 +38,15 @@ PHRASES = {
     "weather:moon": ("love", ["Che bella serata", "Guarda le stelle!"]),
     "weather:fog": ("bored", ["Che nebbia...", "Non si vede niente!"]),
     "weather:cloud": ("happy", ["Un po' nuvoloso oggi"]),
+    "feast:capodanno": ("excited", ["Buon anno!", "Auguri! Botti!", "Felice anno nuovo!"]),
+    "feast:befana": ("happy", ["Arriva la Befana!", "Calza piena?", "Carbone o dolci?"]),
+    "feast:sanvalentino": ("love", ["Buon San Valentino!", "Ti voglio bene!", "Tanti cuori!"]),
+    "feast:carnevale": ("excited", ["Viva il Carnevale!", "Coriandoli!", "Chi c'e' sotto la maschera?"]),
+    "feast:pasqua": ("happy", ["Buona Pasqua!", "Dov'e' la sorpresa?", "Uova di cioccolato!"]),
+    "feast:italia": ("happy", ["Viva l'Italia!", "Buona festa!", "Tricolore!"]),
+    "feast:ferragosto": ("happy", ["Buon Ferragosto!", "Tutti al mare!", "Gelato?"]),
+    "feast:halloween": ("surprised", ["Buuu! Halloween!", "Dolcetto o scherzetto?", "Che paura!"]),
+    "feast:natale": ("love", ["Buon Natale!", "Arriva Babbo Natale!", "Fatto l'albero?"]),
     "chat": ("happy", ["Tutto ok?", "Bevi un po' d'acqua!", "Ciao!", "Che bello stare qui",
                        "Ti voglio bene!", "Sei bravo!", "Sorridi!"]),
 }
@@ -76,7 +85,7 @@ class Personality:
     def pop_message(self):
         return self.queue.pop(0) if self.queue else None
 
-    def tick(self, scene, detail, idle, fullscreen, cpu, gpu, usage, weather=None, music=False):
+    def tick(self, scene, detail, idle, fullscreen, cpu, gpu, usage, weather=None, music=False, feast=None):
         """Chiamata ogni secondo. Restituisce l'umore di fondo: bored, sleepy o none."""
         now = time.time()
         dt, self.last_tick = now - self.last_tick, now
@@ -151,11 +160,15 @@ class Personality:
             self.prev_weather = weather
             self.say("weather:" + weather, cooldown=3 * 60 * 60)
 
-        # chiacchiere ogni tanto, quando sei al PC e non stai giocando
+        # giorno di festa: gli auguri appena sei al PC (una volta al giorno)
+        if feast and idle < 60:
+            self.say("feast:%s:%s" % (feast, time.strftime("%Y-%m-%d")), cooldown=86400, fallback="feast:" + feast)
+
+        # chiacchiere ogni tanto, quando sei al PC e non stai giocando (nei giorni di festa, a tema)
         if self.chatter and now > self.next_chat:
             self.next_chat = now + random.randint(*CHAT_EVERY)
             if idle < 60 and scene in ("none", "code"):
-                self.say("chat")
+                self.say("feast:" + feast if feast and random.random() < 0.5 else "chat")
 
         if away:
             return "bored"

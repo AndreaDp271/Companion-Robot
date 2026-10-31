@@ -35,6 +35,7 @@ except ImportError:
 
 import macropad
 import updater
+from feasts import FEAST_TEXT, feast_today
 from personality import Personality
 
 try:
@@ -722,7 +723,8 @@ class Hub:
         idle = min(idle_seconds(), time.time() - self.controller.last_input)
         self.emo = self.personality.tick(self.scene, self.detail, idle, fullscreen,
                                          self.pc[0], self.pc[2], self.current_usage(),
-                                         self.weather[0] if self.weather else None, bool(self.media))
+                                         self.weather[0] if self.weather else None, bool(self.media),
+                                         feast_today())
         if self.personality.queue:
             self.changed.set()
         self.refresh_icon()
@@ -809,6 +811,7 @@ class Hub:
         if self.goto_page is not None:
             goto, self.goto_page = f"G {self.goto_page}\n", None
         goto += "W %s %d\n" % self.weather[:2] if self.weather else "W - -\n"
+        goto += "F %s\n" % (feast_today() or "-")
         if self.weather_test:
             goto, self.weather_test = goto + f"T {self.weather_test}\n", None
         return (f"S {cpu} {ram} {time.strftime('%H:%M')}\n"
@@ -1103,6 +1106,8 @@ def build_menu(hub):
         pystray.MenuItem(lambda item: "PC: " + hub.pc_text(), None, enabled=False),
         pystray.MenuItem(lambda item: "Consumi Claude: " + hub.usage_text(), None, enabled=False),
         pystray.MenuItem(lambda item: "Meteo: " + hub.weather_text(), None, enabled=False),
+        pystray.MenuItem(lambda item: "Oggi: " + FEAST_TEXT.get(feast_today(), ""), None, enabled=False,
+                         visible=lambda item: feast_today() is not None),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Prova animazione", pystray.Menu(
             pystray.MenuItem("Claude pensa", lambda: hub.set_activity("work")),
@@ -1118,6 +1123,10 @@ def build_menu(hub):
             pystray.MenuItem("Meteo", pystray.Menu(
                 *[pystray.MenuItem(text.capitalize(), (lambda k: lambda: hub.test_weather(k))(kind))
                   for kind, text in WEATHER_TEXT.items()],
+            )),
+            pystray.MenuItem("Feste", pystray.Menu(
+                *[pystray.MenuItem(text, (lambda k: lambda: hub.test_weather(k))(kind))
+                  for kind, text in FEAST_TEXT.items()],
             )),
             pystray.MenuItem("Gioca", pystray.Menu(
                 pystray.MenuItem("Gioco qualsiasi", lambda: hub.test_scene("game")),

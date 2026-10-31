@@ -58,7 +58,7 @@ OSM_LABELS = {"view": "OPENSTREETMAP", "edit": "OSM: MODIFICA"}
 # detail: gioco riconosciuto o modalità di OSM; msg: (emozione, frase, scadenza)
 state = {"cpu": 0, "ram": 0, "clock": "--:--", "last": None, "act": "none", "scene": "none",
          "detail": "", "usage": None, "goto": None, "gpu": None, "emo": "none", "msg": None,
-         "weather": None, "wtest": None, "music": False, "song": None, "media_pos": None}
+         "weather": None, "feast": None, "wtest": None, "music": False, "song": None, "media_pos": None}
 buf = ""
 poll = select.poll()
 poll.register(sys.stdin, select.POLLIN)
@@ -92,6 +92,8 @@ def parse(line):
         state["emo"] = p[1]
     elif len(p) == 3 and p[0] == "W":  # meteo: animazione e temperatura
         state["weather"] = p[1] if p[1] != "-" else None
+    elif len(p) == 2 and p[0] == "F":  # oggi è festa (o "-")
+        state["feast"] = p[1] if p[1] != "-" else None
     elif len(p) == 2 and p[0] == "T":  # prova un'animazione meteo adesso (menu sul PC)
         state["wtest"] = p[1]
     elif len(p) == 2 and p[0] == "H":
@@ -971,7 +973,7 @@ WEATHER_EVERY = (4 * 60000, 7 * 60000)
 WEATHER_LED = {"cold": (0, 4, 12), "hot": (14, 4, 0), "rain": (0, 2, 10), "snow": (8, 8, 10),
                "storm": (4, 0, 8), "sun": (14, 10, 0), "moon": (2, 2, 6), "fog": (3, 3, 3),
                "cloud": (4, 5, 6)}
-wx = {"kind": None, "until": 0, "next": None, "forced": False, "inverted": False}
+wx = {"kind": None, "until": 0, "next": None, "forced": False, "inverted": False, "turn": False}
 
 
 def sweat_drop(x, y):
@@ -1015,6 +1017,9 @@ def draw_sunglasses(ox):
 
 def draw_weather(kind, now, k, lx):
     """Occhi + effetti per l'animazione meteo `kind`."""
+    if kind in FEAST_LED:
+        draw_feast(kind, now, k, lx)
+        return
     ox = int(lx) // 2
     if kind == "sun":
         draw_sunglasses(ox)
@@ -1084,10 +1089,148 @@ def draw_weather(kind, now, k, lx):
             oled.ellipse(cx + dx, dy, r, r, 1, True)
 
 
+# ---------------------------------------------------------------- feste (stesso giro del meteo)
+# Il PC manda "F <festa>" nei giorni di festa; l'animazione si alterna con quella del meteo.
+
+FEAST_LED = {"halloween": (14, 5, 0), "natale": (12, 0, 0), "capodanno": (10, 8, 0), "befana": (6, 0, 8),
+             "sanvalentino": (14, 0, 4), "carnevale": (8, 0, 10), "pasqua": (8, 8, 2), "italia": (0, 10, 0),
+             "ferragosto": (14, 9, 0)}
+
+
+def draw_bat(x, y, now):
+    up = (now // 150) % 2
+    oled.fill_rect(x - 1, y - 1, 3, 3, 1)
+    oled.line(x - 1, y, x - 6, y - 3 if up else y + 2, 1)
+    oled.line(x + 1, y, x + 6, y - 3 if up else y + 2, 1)
+
+
+def draw_pumpkin(x, y):
+    oled.ellipse(x, y, 7, 5, 1, True)
+    oled.vline(x, y - 8, 3, 1)
+    oled.pixel(x - 3, y - 1, 0)
+    oled.pixel(x + 3, y - 1, 0)
+    oled.hline(x - 3, y + 2, 7, 0)
+
+
+def draw_burst(cx, cy, t):
+    # fuoco d'artificio: raggi che si allargano (t da 0 a 1)
+    r1, r2 = int(2 + 10 * t), int(5 + 13 * t)
+    for i in range(8):
+        a = i * math.pi / 4
+        oled.line(cx + int(r1 * math.cos(a)), cy + int(r1 * math.sin(a)),
+                  cx + int(r2 * math.cos(a)), cy + int(r2 * math.sin(a)), 1)
+
+
+def draw_egg(x, y):
+    oled.ellipse(x, y, 5, 7, 1, False)
+    for dx in range(-4, 5, 2):  # zig-zag decorato
+        oled.pixel(x + dx, y + (dx // 2) % 2, 1)
+
+
+def draw_flag(x, y, now):
+    # tricolore che sventola: verde a puntini, bianco vuoto, rosso pieno
+    oled.vline(x - 1, y, 22, 1)
+    for col in range(18):
+        dy = int(1.5 * math.sin(now / 150 + col / 3))
+        if col < 6:
+            for yy in range(0, 12, 2):
+                oled.pixel(x + col, y + dy + yy + col % 2, 1)
+        elif col >= 12:
+            oled.vline(x + col, y + dy, 12, 1)
+        else:
+            oled.pixel(x + col, y + dy, 1)
+            oled.pixel(x + col, y + dy + 11, 1)
+
+
+def draw_feast(kind, now, k, lx):
+    ox = int(lx) // 2
+    m, h, oy = "normal", EYE_H, 0
+    if kind == "halloween":
+        m = "stress"
+    elif kind in ("natale", "capodanno", "pasqua", "ferragosto", "carnevale"):
+        m = "happy"
+    elif kind == "sanvalentino":
+        m = "love"
+    if kind in ("natale", "pasqua", "halloween"):  # cappello o orecchie in testa: occhi un po' più giù
+        oy, h = 3, EYE_H - 6
+    if kind == "ferragosto":
+        draw_sunglasses(ox)
+    else:
+        h = max(2, int(h * k))
+        for cx, side in ((36, -1), (92, 1)):
+            draw_eye(cx + ox, EYE_Y + oy, EYE_W, h, m, side)
+    t = now % 1600 / 1600
+
+    if kind == "halloween":  # cappello da strega, zucche e pipistrelli
+        oled.fill_rect(30 + ox, 19, 68, 3, 1)
+        oled.poly(0, 0, array("h", [44 + ox, 19, 84 + ox, 19, 74 + ox, 0]), 1, True)
+        oled.hline(48 + ox, 15, 33, 0)
+        draw_pumpkin(8, 56)
+        draw_pumpkin(119, 56)
+        for i in range(3):
+            draw_bat((now // 30 + i * 50) % 170 - 20, 6 + i * 4 + int(3 * math.sin(now / 200 + i)), now + i * 70)
+    elif kind == "natale":  # cappello di Babbo Natale e neve
+        oled.poly(0, 0, array("h", [26 + ox, 18, 100 + ox, 18, 112 + ox, 3]), 1, True)
+        oled.ellipse(114 + ox, 4, 3, 3, 1, True)
+        oled.fill_rect(22 + ox, 17, 84, 4, 1)
+        oled.hline(22 + ox, 16, 84, 0)
+        for i in range(8):
+            x, y = (i * 37) % 128, (now // 50 + i * 23) % 70 - 4
+            if not (18 <= x <= 110 and 15 <= y <= 60):
+                oled.pixel(x, y, 1)
+                oled.pixel(x + 1, y, 1)
+                oled.pixel(x, y + 1, 1)
+    elif kind == "capodanno":  # fuochi d'artificio
+        for i, (fx, fy) in enumerate(((9, 12), (118, 14), (64, 6))):
+            tt = (t + i / 3) % 1
+            if tt < 0.8:
+                draw_burst(fx, fy, tt / 0.8)
+        if (now // 400) % 2:
+            center_text("Auguri!", 56)
+    elif kind == "befana":  # la Befana sulla scopa attraversa il cielo
+        left = WEATHER_ANIM_MS - time.ticks_diff(wx["until"], now)
+        x = 140 - left * 180 // WEATHER_ANIM_MS
+        y = 8 + int(2 * math.sin(now / 200))
+        oled.line(x - 12, y + 4, x + 10, y + 1, 1)  # manico
+        for d in range(4):  # saggina
+            oled.line(x + 10, y + 1, x + 16, y - 2 + d * 2, 1)
+        oled.fill_rect(x - 4, y - 4, 5, 7, 1)  # mantello
+        oled.poly(0, 0, array("h", [x - 6, y - 4, x + 3, y - 4, x - 3, y - 11]), 1, True)  # cappello
+    elif kind == "sanvalentino":  # cuoricini che salgono
+        for i, x in enumerate((8, 120, 64, 14, 114)):
+            y = 64 - (now // 30 + i * 19) % 80
+            draw_heart(x, y, 8)
+    elif kind == "carnevale":  # mascherina e coriandoli
+        for cx in (36 + ox, 92 + ox):
+            rrect(cx - 22, 19, 44, 40, 10, 1)
+            rrect(cx - 20, 21, 40, 36, 9, 0)
+            draw_eye(cx, EYE_Y, EYE_W - 8, max(2, int((EYE_H - 8) * k)), "happy", 1)
+        for i in range(16):
+            x, y = (i * 41 + int(4 * math.sin(now / 300 + i))) % 128, (now // 40 + i * 13) % 68 - 2
+            oled.fill_rect(x, y, 2, 2, 1)
+    elif kind == "pasqua":  # orecchie da coniglio e ovetti
+        for ex in (48 + ox, 80 + ox):
+            oled.ellipse(ex, 8, 5, 10, 1, False, 0b0011)
+            oled.ellipse(ex, 8, 2, 7, 1, False, 0b0011)
+        draw_egg(8, 54)
+        draw_egg(120, 54)
+    elif kind == "italia":  # bandierine che sventolano
+        draw_flag(0, 40, now)
+        draw_flag(110, 40, now + 400)
+        center_text("Viva l'Italia", 0)
+    elif kind == "ferragosto":
+        draw_sun(now)
+        y = 58 - abs(int(8 * math.sin(now / 200)))  # pallone da spiaggia che rimbalza
+        oled.ellipse(64, y, 5, 5, 1, False)
+        oled.vline(64, y - 5, 11, 1)
+
+
 def weather_led(kind, now):
     if kind == "storm" and now % 1800 < 120:
         return (16, 16, 16)
-    return WEATHER_LED.get(kind, COLORS["normal"])
+    if kind == "capodanno":  # fuochi colorati
+        return wheel(now // 8 % 256)
+    return FEAST_LED.get(kind) or WEATHER_LED.get(kind, COLORS["normal"])
 
 
 # ---------------------------------------------------------------- pagine (tasto BOOT)
@@ -1225,11 +1368,14 @@ def main():
         if state["wtest"]:
             wx["kind"], wx["until"], wx["forced"] = state["wtest"], time.ticks_add(now, WEATHER_ANIM_MS), True
             state["wtest"] = None
-        elif idle_mood and state["weather"] and wx["kind"] is None:
+        elif idle_mood and (state["weather"] or state["feast"]) and wx["kind"] is None:
             if wx["next"] is None:
                 wx["next"] = time.ticks_add(now, 15000)  # la prima volta poco dopo l'avvio
             elif time.ticks_diff(now, wx["next"]) > 0:
-                wx["kind"], wx["until"], wx["forced"] = state["weather"], time.ticks_add(now, WEATHER_ANIM_MS), False
+                # nei giorni di festa si alterna con il meteo
+                wx["turn"] = not wx["turn"]
+                kind = state["feast"] if state["feast"] and (wx["turn"] or not state["weather"]) else state["weather"]
+                wx["kind"], wx["until"], wx["forced"] = kind, time.ticks_add(now, WEATHER_ANIM_MS), False
                 wx["next"] = time.ticks_add(now, random.randint(*WEATHER_EVERY))
         if wx["kind"] and time.ticks_diff(now, wx["until"]) > 0:
             wx["kind"] = None
