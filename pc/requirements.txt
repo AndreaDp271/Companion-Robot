@@ -12,3 +12,4 @@ winrt-Windows.Media.Control
 winrt-Windows.Storage.Streams
 esptool
 comtypes
+truststore

@@ -27,6 +27,12 @@ import serial
 from PIL import Image, ImageDraw
 from serial.tools import list_ports
 
+try:  # certificati verificati da Windows: Python da solo non conosce le catene più nuove (es. Open-Meteo)
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 import macropad
 import updater
 from personality import Personality
