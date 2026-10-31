@@ -104,6 +104,8 @@ bool hit(const TBtn& b, int px, int py) { return px>=b.x && px<b.x+b.w && py>=b.
 void renderCompanion();
 void companionPollSerial();
 void companionKey(bool down);
+void autoRotate(bool force);   // rotazione automatica con l'accelerometro (Companion.ino)
+void rotLoad();
 bool companionPcConnected();
 enum { PG_COMP, PG_DRAW, PG_LEVEL, PG_WIFI, PG_LORA, PG_IR, PG_TORCH, PG_CRONO, PG_GAME, PG_MOUSE, PG_GPS, PG_WEATHER, PG_SETUP, PG_COUNT };
 int page = PG_COMP;
@@ -1436,7 +1438,7 @@ void onEnter(){
   if(page==PG_MOUSE){ mouseInit(); mouseCalibrate(); mouseHold=false; }
   if(page==PG_GPS)     { gpsInit(); gpsView=0; gpsSyncState=""; }
   if(page==PG_WEATHER) { gpsInit(); }   // serve il GPS anche qui per la posizione
-  M5.Display.setRotation(page==PG_COMP ? 1 : 0);   // COMPANION in orizzontale, il resto in verticale
+  autoRotate(true);   // COMPANION in orizzontale, il resto in verticale; si gira col dispositivo
   M5.Display.setBrightness(255);   // backlight sempre acceso (no PWM su questo HW)
   render();
 }
@@ -1523,6 +1525,7 @@ void setup(){
   shiftTime(0);                            // attiva clock; default poi impostabile
   { struct timeval tv; tv.tv_sec=1717243200; tv.tv_usec=0; settimeofday(&tv,nullptr); } // ~01/06/2024 12:00 UTC
   wifiCredsLoad();                         // se e' stata salvata una rete via BLE, usa quella
+  rotLoad();                               // verso dell'accelerometro per la rotazione automatica
   // BLE sempre attivo dal boot (prima partiva solo entrando in MOUSE o in
   // SETUP>WIFI, quindi il dispositivo non appariva finche' non ci navigavi):
   // cosi' e' visibile come "Nesso N1" subito all'accensione, sia per il mouse
@@ -1591,6 +1594,7 @@ void loop(){
   if(page==PG_MOUSE) mouseUpdate();
 
   // refresh: il gioco e il mouse girano piu' veloci (~25 fps), le altre pagine ogni 120 ms
+  autoRotate(false);   // se il Nesso viene capovolto, gira lo schermo
   static uint32_t lr=0, lg=0;
   if(page==PG_COMP || page==PG_GAME || page==PG_MOUSE || (page==PG_WEATHER && wxHaveData && wxView==0)){ if(millis()-lg>40){ lg=millis(); render(); } }
   else if(millis()-lr>120){ lr=millis(); render(); }

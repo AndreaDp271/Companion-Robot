@@ -2,10 +2,11 @@
 
 Un compagno da scrivania che reagisce a quello che fai al PC: Claude Code, VS Code, giochi, musica, video, OpenStreetMap, meteo...
 
-Funziona con due dispositivi, anche collegati insieme:
+Funziona con tre dispositivi, anche collegati insieme:
 
 - **Robot RP2040**: RP2040-Zero + OLED SSD1306 0.96" monocromatico (firmware MicroPython in `firmware/rp2040`)
 - **Arduino Nesso N1**: schermo a colori 135×240, pagina **COMPANION** dentro la Nesso N1 Suite (firmware in `firmware/nesso_n1`)
+- **Adafruit MacroPad RP2040**: il robot sullo schermo, più 12 tasti e la manopola per audio, microfono e app (vedi [MacroPad](#macropad))
 
 ## Installazione (Windows)
 
@@ -51,6 +52,7 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 
 È la prima pagina della Suite (KEY1 scorre le altre come prima) ed è l'unica in orizzontale. Occhioni a tutto schermo che cambiano colore con l'umore, accessori a colori (cuffie arcobaleno, popcorn, icone dei giochi, mappa OSM, codice colorato), titolo e barra del tempo di musica e video in basso.
 
+- **Rotazione automatica**: girando il Nesso sottosopra lo schermo si raddrizza da solo (accelerometro), in orizzontale sulla pagina COMPANION e in verticale sulle altre. Se il verso è sbagliato, dal monitor seriale: `#rot l -1` (orizzontale) o `#rot p -1` (verticale), resta salvato
 - **KEY2 breve**: vista successiva, occhi → consumi Claude → orologio con CPU/RAM/GPU e meteo (dopo 20 s torna agli occhi)
 - **KEY2 lungo**: con l'app sul PC chiede di aggiornare tutto da GitHub; senza app apre questa pagina sul PC via tastiera Bluetooth (va associato "Nesso N1" nel Bluetooth di Windows; se era già associato come mouse, rimuovilo e riassocialo una volta) oppure mostra il QR
 
@@ -58,9 +60,9 @@ Compare un'icona vicino all'orologio (se non la vedi, guarda nella freccia `^` d
 
 | Situazione | Robot | LED |
 |---|---|---|
-| Claude sta lavorando | super concentrato (occhi stretti, sopracciglia aggrottate, goccia di sudore) e nuvoletta | viola pulsante |
-| Claude ti chiede qualcosa | "Ti cerco!", occhi spalancati | arancione lampeggiante |
-| Claude ha finito | "Fatto!", saltella | verde |
+| Claude sta lavorando | al posto degli occhioni c'è la mascotte di Claude Code: cammina a occhi stretti, con la stellina che gira e un verbo ("Rimugino...", "Cucino...") | viola pulsante |
+| Claude ti chiede qualcosa | la mascotte saltella e saluta, "?" e "Ti cerco!" | arancione lampeggiante |
+| Claude ha finito | la mascotte salta di gioia tra le scintille, "Fatto!" | verde |
 | VS Code in primo piano | programma al portatile | blu |
 | Musica in riproduzione (Spotify, video musicali su YouTube, ...) | cuffie in testa, occhi che ballano, note, barra del tempo e titolo che scorre | arcobaleno |
 | Video normale (YouTube, ...) | guarda il video coi popcorn, barra del tempo e titolo | azzurro che tremola |
@@ -102,6 +104,33 @@ Nel terminale, la barra di stato di Claude Code (`pc/statusline.py`) mostra gli 
 | SCL | GP29 |
 
 (Il firmware accetta anche il vecchio collegamento SDA GP5 / SCL GP4.)
+
+## MacroPad
+
+Sull'Adafruit MacroPad RP2040 gira lo stesso firmware del robot (`firmware/rp2040/main.py`) più `firmware/macropad/board.py`, che gestisce display SH1106, LED, tasti ed encoder. Lo speaker resta sempre spento. L'audio passa da AudioTray (`%USERPROFILE%\AudioTray`, comandi UDP su `127.0.0.1:47801`), così compare il suo OSD; se AudioTray non è aperto, l'app lo avvia.
+
+Prima installazione: MicroPython per Raspberry Pi Pico (tieni premuta la manopola, premi reset, copia l'UF2 sul disco RPI-RP2), poi:
+
+```
+python -m mpremote cp firmware/rp2040/main.py :main.py + cp firmware/macropad/board.py :board.py + reset
+```
+
+L'app lo riconosce da solo (manda `!hello macropad`) e da lì in poi lo aggiorna con **Riscrivi firmware sui dispositivi**.
+
+| | | |
+|---|---|---|
+| **Audio** muto | **Microfono** on/off | **CastelSafe** |
+| **Indietro** | **Play/Pausa** | **Avanti** |
+| **VS Code** | **Brave** | **Esplora file** |
+| **Discord** | **Telegram** | **Companion**: pagina occhi/consumi/orologio, tenuto = schermo spento |
+
+- **Luci**: ogni tasto ha il suo colore fisso; Audio e Microfono diventano rossi quando sono muti
+- **Indietro/Avanti**: brano precedente/successivo; se il player non ne ha (un video singolo su YouTube) salta di 10 secondi
+- **Manopola**: gira = volume, clic = casse ↔ cuffie, gira tenendola premuta = volume del microfono, tenuta = pannello di AudioTray
+- **Schermo**: in basso, sotto gli occhi, uscita attiva con volume e stato del microfono
+- **Casse ↔ cuffie**: sulla Sound Blaster Z AudioTray cambia l'uscita della scheda (come Sound Blaster Command) e ricorda un volume separato per casse e cuffie; con altre schede passa al dispositivo audio successivo di Windows
+- **Tasti delle app**: portano l'app in primo piano (se è già davanti passa alla finestra dopo o la riduce a icona; se non è aperta la avvia). Tenuti premuti: nuova finestra
+- I tasti si cambiano in `config.json` → `"macropad": {"keys": [...]}`, stesso formato di `KEYS` in `pc/macropad.py`
 
 ## Installazione manuale
 

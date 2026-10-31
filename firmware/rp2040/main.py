@@ -10,10 +10,16 @@
 #   "H <1|0|->\n"              in riproduzione: 1 musica, 0 video, - niente
 #   "N <titolo>\n" "B <pos> <durata>\n"  titolo e avanzamento (secondi) di musica o video
 # Tasto BOOT: breve = pagina successiva (occhi, consumi, orologio), lungo = schermo spento.
+# Sull'Adafruit MacroPad c'è anche board.py (firmware/macropad): display, LED, tasti ed encoder.
 import sys, select, time, random, math
 from array import array
 from machine import Pin, I2C, SoftI2C
-import framebuf, rp2, ssd1306, neopixel
+import framebuf, rp2, neopixel
+
+try:
+    import board
+except ImportError:
+    board = None
 
 
 def find_display():
@@ -27,8 +33,12 @@ def find_display():
     raise OSError("display OLED non trovato: controlla i collegamenti")
 
 
-oled = ssd1306.SSD1306_I2C(128, 64, find_display())
-led = neopixel.NeoPixel(Pin(16), 1)
+if board:
+    oled, led = board.oled, board.led
+else:
+    import ssd1306
+    oled = ssd1306.SSD1306_I2C(128, 64, find_display())
+    led = neopixel.NeoPixel(Pin(16), 1)
 
 EYE_W, EYE_H = 36, 36
 EYE_Y = 39
@@ -55,6 +65,8 @@ poll.register(sys.stdin, select.POLLIN)
 
 
 def parse(line):
+    if board and board.parse(line):
+        return
     if line.startswith("M "):  # la frase contiene spazi: va letta a parte
         p = line.split(" ", 2)
         if len(p) == 3:
@@ -213,21 +225,72 @@ def center_text(s, y):
     oled.text(s, (128 - 8 * len(s)) // 2, y)
 
 
-def draw_thought(now):
-    # nuvoletta dei pensieri in alto a destra, con i puntini che compaiono
-    oled.ellipse(92, 30, 2, 2, 1, True)
-    oled.ellipse(99, 22, 3, 3, 1, True)
-    for cx, cy, r in ((106, 11, 7), (116, 8, 8), (123, 13, 6), (113, 15, 7)):
-        oled.ellipse(cx, cy, r, r, 1, True)
-    for i in range((now // 350) % 4):
-        oled.fill_rect(105 + i * 6, 11, 3, 3, 0)
-    # consumi di Claude in alto a sinistra, mentre lavora
-    u = state["usage"]
-    if u and u[:2] != ["-", "-"]:
-        if u[0] != "-":
+# ---------------------------------------------------------------- Claude Code: la mascotte
+# Quando Claude lavora, ti cerca o ha finito, al posto degli occhioni c'è il granchietto del
+# terminale di Claude Code (18 x 10 unità: corpo, braccini, quattro zampette, occhi).
+CLAWD_LEGS = (4, 6, 11, 13)
+CLAWD_VERBS = ("Rimugino", "Elaboro", "Ragiono", "Macino", "Cucino", "Medito", "Combino")
+
+
+def draw_clawd_body(x, y, u, m, now, k):
+    step = (now // 250) % 2
+    oled.fill_rect(x + 3 * u, y, 12 * u, 8 * u, 1)  # corpo
+    left = right = 2 * u if m == "done" else 0
+    if m == "ask":  # saluta con un braccino alla volta
+        left = 2 * u if step else 0
+        right = 2 * u - left
+    oled.fill_rect(x + u, y + 4 * u - left, 2 * u, 2 * u, 1)
+    oled.fill_rect(x + 15 * u, y + 4 * u - right, 2 * u, 2 * u, 1)
+    for i, c in enumerate(CLAWD_LEGS):
+        h = u if m == "work" and i % 2 == step else 2 * u  # passetti
+        oled.fill_rect(x + c * u, y + 8 * u, u, h, 1)
+    for c in (5, 12):
+        ex, ey = x + c * u, y + 2 * u
+        if k < 0.5:  # battito di palpebre
+            oled.fill_rect(ex, ey + u, u, 1, 0)
+        elif m == "work":  # occhi stretti, concentrato
+            oled.fill_rect(ex, ey + u, u, u, 0)
+        elif m == "done":  # occhi felici
+            oled.fill_rect(ex, ey, u, u, 0)
+        else:
+            oled.fill_rect(ex, ey, u, 2 * u, 0)
+
+
+def draw_spark(cx, cy, r, now):
+    # la stellina che gira mentre Claude pensa
+    a0, rr = now / 400, r - (now // 120) % 3
+    for i in range(4):
+        a = a0 + i * math.pi / 4
+        dx, dy = int(rr * math.cos(a)), int(rr * math.sin(a))
+        oled.line(cx - dx, cy - dy, cx + dx, cy + dy, 1)
+        oled.line(cx - dx + 1, cy - dy, cx + dx + 1, cy + dy, 1)
+
+
+def draw_clawd(m, now, k):
+    if m == "work":
+        draw_clawd_body(8, 22 + (now // 250) % 2, 3, m, now, k)
+        draw_spark(100, 34, 10, now)
+        oled.text(CLAWD_VERBS[(now // 3000) % len(CLAWD_VERBS)] + "." * ((now // 350) % 4), 0, 56)
+        if now % 5000 < 1500:  # goccia di sudore per lo sforzo
+            sweat_drop(68, 16 + (now % 5000) // 150)
+        # consumi di Claude in alto, mentre lavora
+        u = state["usage"]
+        if u and u[0] != "-":
             oled.text("5h " + u[0] + "%", 0, 0)
-        if u[1] != "-":
-            oled.text("sett " + u[1] + "%", 0, 10)
+        if u and u[1] != "-":
+            s = "sett " + u[1] + "%"
+            oled.text(s, 128 - 8 * len(s), 0)
+    elif m == "ask":
+        draw_clawd_body(37, 24 - (3 if (now // 300) % 2 else 0), 3, m, now, k)
+        if (now // 400) % 2:
+            big_text("?", 100, 20, 2)
+    else:
+        draw_clawd_body(37, 28 - abs(int(8 * math.sin(now / 150))), 3, m, now, k)
+        for i in range(5):  # scintille di festa
+            if (now // 200 + i) % 3:
+                sx, sy = (6, 100, 16, 112, 24)[i], (20, 24, 44, 50, 58)[i]
+                oled.hline(sx - 3, sy, 7, 1)
+                oled.vline(sx, sy - 3, 7, 1)
 
 
 # righe di codice (rientro, lunghezza) che scorrono sullo schermo del portatile
@@ -900,11 +963,11 @@ def top_bar(m, now):
 
 
 # ---------------------------------------------------------------- meteo (animazione ogni tanto)
-# Non è una pagina: ogni 6-10 minuti, se il robot non sta facendo altro, per 8 secondi
+# Non è una pagina: ogni 4-7 minuti (anche mentre programmi, sei via o di notte), per 8 secondi
 # reagisce al tempo che fa: trema, suda, apre l'ombrello, mette gli occhiali da sole...
 
 WEATHER_ANIM_MS = 8000
-WEATHER_EVERY = (6 * 60000, 10 * 60000)
+WEATHER_EVERY = (4 * 60000, 7 * 60000)
 WEATHER_LED = {"cold": (0, 4, 12), "hot": (14, 4, 0), "rain": (0, 2, 10), "snow": (8, 8, 10),
                "storm": (4, 0, 8), "sun": (14, 10, 0), "moon": (2, 2, 6), "fog": (3, 3, 3),
                "cloud": (4, 5, 6)}
@@ -1112,6 +1175,8 @@ def splash():
 # ---------------------------------------------------------------- ciclo principale
 
 def main():
+    if board:
+        board.attach(globals())
     splash()
     now = time.ticks_ms()
     blink_at, blink_i = time.ticks_add(now, 2000), -1
@@ -1122,6 +1187,8 @@ def main():
     while True:
         read_serial()
         now = time.ticks_ms()
+        if board:
+            board.tick(now)
         m = mood()
         if m != last_mood:
             look_at = now  # nuovo umore: riposiziona subito lo sguardo
@@ -1132,7 +1199,7 @@ def main():
         speaking = msg is not None and m not in ("ask", "sleep")
 
         # tasto BOOT e pagine
-        ev = read_button(now)
+        ev = board.button(now) if board else read_button(now)
         if screen_off and (ev or m == "ask"):  # qualsiasi pressione (o Claude che ti cerca) riaccende
             screen_off, ev, page = False, None, 0
             oled.poweron()
@@ -1154,13 +1221,13 @@ def main():
             page = 0
 
         # meteo: ogni tanto un'animazione, solo quando il robot non sta facendo altro
-        idle_mood = m in ("normal", "happy", "stress") and not speaking and not page
+        idle_mood = m in ("normal", "happy", "stress", "code", "bored", "sleepy") and not speaking and not page
         if state["wtest"]:
             wx["kind"], wx["until"], wx["forced"] = state["wtest"], time.ticks_add(now, WEATHER_ANIM_MS), True
             state["wtest"] = None
         elif idle_mood and state["weather"] and wx["kind"] is None:
             if wx["next"] is None:
-                wx["next"] = time.ticks_add(now, 20000)  # la prima volta poco dopo l'avvio
+                wx["next"] = time.ticks_add(now, 15000)  # la prima volta poco dopo l'avvio
             elif time.ticks_diff(now, wx["next"]) > 0:
                 wx["kind"], wx["until"], wx["forced"] = state["weather"], time.ticks_add(now, WEATHER_ANIM_MS), False
                 wx["next"] = time.ticks_add(now, random.randint(*WEATHER_EVERY))
@@ -1183,6 +1250,8 @@ def main():
             led[0] = c
             led.write()
             last_led = c
+        if board:
+            board.leds(now, m, screen_off)
 
         # battito di palpebre (quasi mai quando ti cerca)
         k = 1.0
@@ -1224,6 +1293,10 @@ def main():
             time.sleep_ms(30)
             continue
         oled.fill(0)
+        if board and board.draw(now):  # volume, microfono, tasto appena premuto
+            oled.show()
+            time.sleep_ms(30)
+            continue
         if page:
             PAGES[page](now)
             oled.show()
@@ -1271,15 +1344,13 @@ def main():
             scene_fn = draw_music
         elif m == "video":
             scene_fn = draw_video
-        if not scene_fn:
+        if m in ACTIVITIES:  # Claude Code: la mascotte al posto degli occhioni
+            draw_clawd(m, now, k)
+        elif not scene_fn:
             for cx, side in ((eyes[0], -1), (eyes[1], 1)):
                 draw_eye(cx + ox, ey + oy, w, h, m, side)
 
-        if m == "work":
-            draw_thought(now)
-            if now % 5000 < 1500:  # goccia di sudore per lo sforzo
-                sweat_drop(6, 30 + (now % 5000) // 120)
-        elif m == "code":
+        if m == "code":
             draw_laptop(now)
             if state["music"]:  # programmi ascoltando musica: le cuffie in testa
                 draw_headphones(64 + ox, 1, 36, 10 + oy, 12)
@@ -1294,6 +1365,8 @@ def main():
             scene_fn(now)
             center_text(OSM_LABELS[state["detail"]], 0)
         top_bar(m, now)
+        if board:
+            board.decorate(now)
         oled.show()
         time.sleep_ms(30)
 

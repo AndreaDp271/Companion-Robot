@@ -53,6 +53,10 @@ struct CompState {
 
 String compLine;
 String compPrevAct = "none";
+
+// animazione meteo: ogni 4-7 minuti per 8 secondi, se il companion non sta facendo altro
+#define WX_ANIM_MS 8000
+struct { String kind; uint32_t until = 0, next = 0; bool forced = false; } wxa;
 int compView = 0; uint32_t compViewUntil = 0;   // 0 occhi, 1 consumi Claude, 2 orologio
 bool compShowQr = false;                        // QR di installazione (anche col PC collegato)
 uint32_t compUpdAt = 0;                         // quando è stato chiesto l'aggiornamento
@@ -189,8 +193,52 @@ void compParse(const String& line){
     case 'U': if(n == 4){ cs.u5 = p[0]; cs.u7 = p[1]; cs.r5 = p[2]; cs.r7 = p[3]; } break;
     case 'V': if(n == 3){ cs.gpu = p[0] == "-" ? -1 : p[0].toInt(); cs.gtemp = p[1] == "-" ? -1 : p[1].toInt(); } break;
     case 'W': if(n == 2){ cs.wx = p[0] == "-" ? "" : p[0]; cs.wxTemp = p[1].toInt(); } break;
+    case 'T': if(n == 1){ wxa.kind = p[0]; wxa.until = millis() + WX_ANIM_MS; wxa.forced = true; } break;   // prova dal menu
     case 'H': if(n == 1){ cs.media = p[0] == "1" ? 1 : (p[0] == "0" ? 0 : -1); if(cs.media < 0){ cs.song = ""; cs.mDur = 0; } } break;
     case 'B': if(n == 2){ cs.mPos = p[0].toInt(); cs.mDur = p[1].toInt(); cs.mAt = millis(); } break;
+  }
+}
+
+// ---- rotazione automatica (accelerometro) ----
+// COMPANION è in orizzontale (rotazione 1 o 3), le altre pagine in verticale (0 o 2): lo schermo
+// si capovolge quando capovolgi il Nesso. Misurato: tenuto in orizzontale e dritto, la gravità
+// è tutta su ay (+1) -> ay = asse corto dello schermo, ax = asse lungo.
+// Il verso degli assi si regola dal PC senza ricompilare: "#rot l -1" / "#rot p -1" (salvato).
+// Le pagine che usano l'inclinazione (BOLLA, GIOCO, MOUSE) restano ferme.
+Preferences rotPrefs;
+int8_t rotSignL = 1, rotSignP = 1;   // verso degli assi: orizzontale (COMPANION) e verticale
+int curRot = -1;
+float rotAx = 0, rotAy = 0;          // accelerazione filtrata
+uint32_t rotLast = 0;
+
+void rotLoad(){
+  rotPrefs.begin("rot", true);
+  rotSignL = rotPrefs.getChar("l", 1); rotSignP = rotPrefs.getChar("p", 1);
+  rotPrefs.end();
+}
+void rotSave(){
+  rotPrefs.begin("rot", false);
+  rotPrefs.putChar("l", rotSignL); rotPrefs.putChar("p", rotSignP);
+  rotPrefs.end();
+}
+void autoRotate(bool force){
+  bool fixed = page == PG_LEVEL || page == PG_GAME || page == PG_MOUSE;
+  if(!force && (fixed || millis() - rotLast < 200)) return;   // ~5 letture al secondo
+  rotLast = millis();
+  float ax = 0, ay = 0, az = 0;
+  if(!fixed){ M5.Imu.update(); M5.Imu.getAccelData(&ax, &ay, &az); }
+  rotAx = rotAx * 0.6f + ax * 0.4f; rotAy = rotAy * 0.6f + ay * 0.4f;
+  bool land = page == PG_COMP;
+  int base = land ? 1 : 0, flip = land ? 3 : 2;
+  float g = land ? rotAy * rotSignL : rotAx * rotSignP;   // orizzontale: asse corto (ay); verticale: asse lungo (ax)
+  int want = (curRot == base || curRot == flip) ? curRot : base;   // tra le due soglie resta com'è
+  if(!fixed){ if(g > 0.55f) want = base; else if(g < -0.55f) want = flip; }
+  else want = base;
+  if(want != curRot || force){
+    bool changed = want != curRot;
+    curRot = want;
+    M5.Display.setRotation(curRot);
+    if(changed && !force) render();
   }
 }
 
@@ -207,7 +255,18 @@ void companionPollSerial(){
     char c = Serial.read();
     if(c == '\n'){
       compLine.trim();
-      if(compLine == "#shot") compScreenshot(); else compParse(compLine);
+      if(compLine == "#shot") compScreenshot();
+      else if(compLine == "#imu"){   // per tarare la rotazione: accelerazione e rotazione attuali
+        float ax = 0, ay = 0, az = 0; M5.Imu.update(); M5.Imu.getAccelData(&ax, &ay, &az);
+        Serial.printf("IMU ax=%.2f ay=%.2f az=%.2f rot=%d segni l=%d p=%d\n", ax, ay, az, curRot, rotSignL, rotSignP);
+      }
+      else if(compLine.startsWith("#rot ") && compLine.length() >= 8){   // "#rot l -1" / "#rot p 1"
+        int8_t v = compLine.substring(7).toInt() < 0 ? -1 : 1;
+        if(compLine[5] == 'l') rotSignL = v; else rotSignP = v;
+        rotSave(); autoRotate(true);
+        Serial.printf("ROT segni l=%d p=%d\n", rotSignL, rotSignP);
+      }
+      else compParse(compLine);
       compLine = "";
     }
     else if(compLine.length() < 120) compLine += c;
@@ -295,13 +354,6 @@ void compEyes(int cx1, int cx2, int cy, int w, int h, const String& m, uint16_t 
 }
 
 // ---- accessori delle scene (area occhi: x 0..150, y 14..135) ----
-void compThought(uint32_t now){   // Claude pensa: nuvoletta con i puntini
-  uint16_t c = rgb(235, 235, 245);
-  const int X = 90;   // in alto a destra
-  cc.fillCircle(X + 118, 54, 3, c); cc.fillCircle(X + 125, 44, 4, c);
-  cc.fillCircle(X + 122, 29, 10, c); cc.fillCircle(X + 134, 25, 10, c); cc.fillCircle(X + 141, 33, 7, c); cc.fillCircle(X + 130, 36, 9, c);
-  for(int i = 0; i < (int)((now / 350) % 4); i++) cc.fillCircle(X + 123 + i * 6, 30, 2, rgb(180, 110, 255));
-}
 void compSweat(int x, int y){
   uint16_t c = rgb(120, 200, 255);
   cc.fillCircle(x, y, 3, c); cc.fillTriangle(x - 3, y - 1, x + 3, y - 1, x, y - 8, c);
@@ -465,6 +517,65 @@ void compText(const char* s, int x, int y, uint16_t col, textdatum_t d = top_lef
 }
 String resetText(const String& r){ return r == "-" ? String("") : String("reset ") + r.substring(0, r.indexOf('_')) + " " + r.substring(r.indexOf('_') + 1); }
 
+// Claude Code: al posto degli occhioni c'è la mascotte, il granchietto arancione del terminale
+// (18 x 10 unità: corpo, braccini, quattro zampette, occhi). Pensa, ti cerca o ha finito.
+const char* CLAWD_VERBS[] = {"Rimugino", "Elaboro", "Ragiono", "Macino", "Cucino", "Medito", "Combino"};
+void compClawdBody(int x, int y, int u, const String& m, uint32_t now, float k){
+  uint16_t c = rgb(217, 119, 87);
+  int step = (now / 250) % 2;
+  cc.fillRect(x + 3 * u, y, 12 * u, 8 * u, c);                     // corpo
+  int left = m == "done" ? 2 * u : 0, right = left;
+  if(m == "ask"){ left = step ? 2 * u : 0; right = 2 * u - left; }  // saluta con un braccino alla volta
+  cc.fillRect(x + u, y + 4 * u - left, 2 * u, 2 * u, c);
+  cc.fillRect(x + 15 * u, y + 4 * u - right, 2 * u, 2 * u, c);
+  const int legs[4] = {4, 6, 11, 13};
+  for(int i = 0; i < 4; i++){
+    int h = m == "work" && i % 2 == step ? u : 2 * u;               // passetti
+    cc.fillRect(x + legs[i] * u, y + 8 * u, u, h, c);
+  }
+  for(int col : {5, 12}){
+    int ex = x + col * u, ey = y + 2 * u;
+    if(k < 0.5f) cc.fillRect(ex, ey + u, u, 2, TFT_BLACK);              // battito di palpebre
+    else if(m == "work") cc.fillRect(ex, ey + u, u, u, TFT_BLACK);      // occhi stretti, concentrato
+    else if(m == "done"){                                               // occhi felici ^
+      cc.fillTriangle(ex - u / 2, ey + 2 * u, ex + u / 2, ey, ex + u + u / 2, ey + 2 * u, TFT_BLACK);
+      cc.fillTriangle(ex, ey + 2 * u, ex + u / 2, ey + u, ex + u, ey + 2 * u, c);
+    } else cc.fillRect(ex, ey, u, 2 * u, TFT_BLACK);
+  }
+}
+void compSpark(int cx, int cy, int r, uint16_t c, uint32_t now){   // la stellina che gira mentre pensa
+  float a0 = now / 400.0f; int rr = r - (now / 120) % 3 * 2;
+  for(int i = 0; i < 4; i++){
+    float a = a0 + i * 3.14159f / 4;
+    int dx = rr * cos(a), dy = rr * sin(a);
+    cc.drawWideLine(cx - dx, cy - dy, cx + dx, cy + dy, 2, c);
+  }
+}
+void compClawd(const String& m, uint32_t now, float k){
+  const int u = 6, cx = FACE_W / 2;
+  uint16_t orange = rgb(217, 119, 87);
+  if(m == "work"){
+    compClawdBody(cx - 9 * u - 30, 40 + (now / 250) % 2, u, m, now, k);
+    compSpark(cx + 78, 62, 18, orange, now);
+    String verb = String(CLAWD_VERBS[(now / 3000) % 7]) + String("...").substring(0, (now / 350) % 4);
+    compText(verb.c_str(), cx - 30, 108, moodColor("work"), top_center, &fonts::Font2);
+    if(now % 5000 < 1500) compSweat(cx - 30 + 9 * u + 10, 34 + (now % 5000) / 60);
+  } else if(m == "ask"){
+    compClawdBody(cx - 9 * u, 36 - ((now / 300) % 2 ? u : 0), u, m, now, k);
+    if((now / 400) % 2) compText("?", cx + 9 * u + 14, 24, moodColor("ask"), top_center, &fonts::Font4);
+    if((now / 400) % 2) compText("Ti cerco!", cx, 112, moodColor("ask"), top_center, &fonts::Font2);
+  } else {
+    compClawdBody(cx - 9 * u, 40 - abs((int)(10 * sin(now / 150.0))), u, m, now, k);
+    for(int i = 0; i < 6; i++){                                     // scintille di festa
+      if((now / 200 + i) % 3 == 0) continue;
+      int sx = (i * 73 + 20) % 200 + 20, sy = 24 + (i * 37) % 70;
+      if(abs(sx - cx) < 9 * u + 6) sx = sx < cx ? sx - 50 : sx + 50;
+      compSpark(sx, sy, 6, hueColor(i * 60 + now / 10), now + i * 300);
+    }
+    compText("Fatto!", cx, 112, moodColor("done"), top_center, &fonts::Font2);
+  }
+}
+
 // barra in alto: ora, titolo, batteria
 void compTopBar(){
   cc.fillRect(0, 0, CW, CTOP, COL_BAR);
@@ -491,6 +602,98 @@ void compMediaFooter(uint32_t now){
     char a[8], b[8]; snprintf(a, 8, "%d:%02d", cur / 60, cur % 60); snprintf(b, 8, "%d:%02d", cs.mDur / 60, cs.mDur % 60);
     compText(a, 2, CH - 8, COL_MUTED); compText(b, CW - 2, CH - 8, COL_MUTED, top_right);
     compBar(34, CH - 7, CW - 68, 5, cur * 100 / cs.mDur, cs.media ? hueColor(now / 12 + 120) : rgb(150, 200, 255));
+  }
+}
+
+// ---- animazioni meteo (a colori) ----
+void compSunglasses(int cx, int cy){
+  for(int s = -1; s <= 1; s += 2){
+    int x = cx + s * 46;
+    cc.fillRoundRect(x - 32, cy - 20, 64, 40, 12, TFT_WHITE);
+    cc.fillRoundRect(x - 29, cy - 17, 58, 34, 10, rgb(20, 20, 30));
+    cc.drawLine(x - 20, cy + 8, x - 8, cy - 8, rgb(150, 150, 170));   // riflessi
+    cc.drawLine(x - 14, cy + 11, x - 2, cy - 5, rgb(150, 150, 170));
+  }
+  cc.fillRect(cx - 14, cy - 12, 28, 4, TFT_WHITE);   // ponte
+  cc.fillRect(0, cy - 14, cx - 78, 3, TFT_WHITE); cc.fillRect(cx + 78, cy - 14, CW - cx - 78, 3, TFT_WHITE);   // stanghette
+}
+void compSunCorner(int x, int y, uint32_t now){
+  uint16_t c = rgb(255, 210, 40);
+  cc.fillCircle(x, y, 9, c);
+  for(int i = 0; i < 8; i++){ float a = i * 0.785f + now / 1500.0f; cc.drawLine(x + 12 * cos(a), y + 12 * sin(a), x + 16 * cos(a), y + 16 * sin(a), c); }
+}
+void compUmbrella(int cx, uint32_t now){
+  const int top = 18, rim = 46;
+  cc.fillEllipse(cx, rim, 80, rim - top, rgb(230, 60, 70));         // tela rossa
+  cc.fillEllipse(cx, rim, 40, rim - top, rgb(255, 210, 60));        // spicchio giallo al centro
+  cc.fillEllipse(cx, rim, 14, rim - top, rgb(230, 60, 70));
+  cc.fillRect(cx - 82, rim, 164, rim - top + 2, TFT_BLACK);          // taglio: resta la metà di sopra
+  for(int x = cx - 70; x <= cx + 70; x += 20) cc.fillCircle(x, rim, 10, TFT_BLACK);   // bordo a festoni
+  cc.fillRect(cx - 1, top - 6, 3, 6, rgb(200, 200, 210));           // puntale
+  cc.fillRect(cx - 1, rim, 3, 70, rgb(200, 200, 210));              // manico tra gli occhi
+  cc.drawArc(cx - 6, rim + 70, 6, 4, 0, 180, rgb(200, 200, 210));
+  for(int i = 0; i < 14; i++){                                       // pioggia intorno
+    int x = (i * 37) % CW;
+    bool under = x > cx - 84 && x < cx + 84;
+    int y = under ? CTOP + (int)((now / 25 + i * 9) % 12) - 6 : CTOP + (int)((now / 22 + i * 17) % 130);
+    cc.drawFastVLine(x, y, 6, rgb(80, 150, 255));
+  }
+}
+void compWeatherAnim(const String& kind, uint32_t now, float k, int ox){
+  const int cx = CW / 2, cy = 78;
+  ox /= 2;
+  if(kind == "sun"){ compSunglasses(cx + ox, cy); compSunCorner(CW - 22, CTOP + 18, now); return; }
+  if(kind == "moon") cc.fillRect(0, CTOP, CW, CH - CTOP, rgb(8, 10, 40));   // cielo di notte
+  String m = "normal"; uint16_t col = moodColor("normal"); int h = 66, oy = 0;
+  if(kind == "cold"){ col = rgb(170, 230, 255); ox += random(0, 2) ? 2 : -2; h = 56; }
+  else if(kind == "hot"){ m = "sleepy"; col = rgb(255, 150, 60); }
+  else if(kind == "fog"){ col = rgb(160, 165, 175); h = 30; }
+  else if(kind == "storm"){ m = "surprised"; col = rgb(255, 230, 120); }
+  else if(kind == "snow"){ m = "happy"; col = rgb(230, 245, 255); }
+  else if(kind == "cloud"){ oy = -4; }
+  else if(kind == "rain"){ col = rgb(120, 190, 255); }
+  bool umbrella = kind == "rain" || kind == "storm";
+  if(umbrella){ compUmbrella(cx, now); oy = 8; h = 58; }   // l'ombrello prima: il suo taglio non tocca gli occhi
+  compEyes(cx - 46 + ox, cx + 46 + ox, cy + oy, 56, max(2, (int)(h * k)), m, col);
+
+  if(umbrella){
+    if(kind == "storm" && now % 1800 < 160){   // lampo
+      cc.fillTriangle(18, CTOP + 2, 32, CTOP + 2, 22, CTOP + 26, rgb(255, 235, 60));
+      cc.fillTriangle(22, CTOP + 22, 34, CTOP + 22, 14, CTOP + 52, rgb(255, 235, 60));
+    }
+  } else if(kind == "cold"){
+    if((now / 400) % 2) compText("Brrr!", cx, CTOP + 4, rgb(170, 230, 255), top_center, &fonts::Font2);
+    for(int s = -1; s <= 1; s += 2) for(int y = 50; y < 110; y += 8){   // tremolio ai lati
+      int x = cx + s * 100;
+      cc.drawLine(x - 2, y, x + 2, y + 4, rgb(170, 230, 255)); cc.drawLine(x + 2, y + 4, x - 2, y + 8, rgb(170, 230, 255));
+    }
+  } else if(kind == "hot"){
+    compSunCorner(CW - 22, CTOP + 18, now);
+    compSweat(cx - 90, 50 + (now / 40) % 40); compSweat(cx + 92, 50 + (now / 40 + 20) % 40);
+    for(int x = 0; x < CW; x += 6) cc.fillRect(x, CH - 6 + ((x / 6 + now / 150) % 4 < 2 ? 1 : 0), 4, 2, rgb(255, 120, 40));
+  } else if(kind == "snow"){
+    for(int i = 0; i < 22; i++){
+      int x = (i * 37 + (int)(8 * sin(now / 500.0 + i))) % CW, y = CTOP + (int)((now / 45 + i * 29) % 125);
+      cc.drawFastHLine(x - 2, y, 5, TFT_WHITE); cc.drawFastVLine(x, y - 2, 5, TFT_WHITE);
+    }
+  } else if(kind == "moon"){
+    cc.fillCircle(CW - 26, CTOP + 20, 12, rgb(250, 240, 190)); cc.fillCircle(CW - 20, CTOP + 15, 11, rgb(8, 10, 40));
+    const uint8_t st[][2] = {{14, 24}, {50, 40}, {96, 20}, {150, 30}, {30, 112}, {200, 110}, {176, 60}};
+    for(int i = 0; i < 7; i++) if((now / 300 + i) % 3){
+      uint16_t c = (i % 2) ? rgb(255, 240, 160) : TFT_WHITE;
+      cc.drawPixel(st[i][0], st[i][1], c);
+      if((now / 300 + i) % 3 == 1){ cc.drawFastHLine(st[i][0] - 2, st[i][1], 5, c); cc.drawFastVLine(st[i][0], st[i][1] - 2, 5, c); }
+    }
+  } else if(kind == "fog"){
+    for(int r = 0; r < 5; r++){
+      int y = CTOP + 12 + r * 22, off = (int)((now / 50) % 40) * (r % 2 ? 1 : -1);
+      for(int x = -40 + off; x < CW; x += 40) cc.fillRoundRect(x, y, 28, 5, 2, rgb(120, 125, 135));
+    }
+  } else if(kind == "cloud"){
+    int left = WX_ANIM_MS - (int)(wxa.until - now);
+    int x = CW + 40 - left * (CW + 90) / WX_ANIM_MS;
+    uint16_t c = rgb(225, 228, 238);
+    cc.fillCircle(x, CTOP + 18, 12, c); cc.fillCircle(x + 14, CTOP + 12, 14, c); cc.fillCircle(x + 28, CTOP + 18, 12, c); cc.fillRect(x, CTOP + 18, 28, 12, c);
   }
 }
 
@@ -583,13 +786,28 @@ void renderCompanion(){
   int ox = (int)fx.lx, oy = (int)fx.ly;
   const int cx = FACE_W / 2;
 
+  // meteo: ogni tanto un'animazione, quando il companion non sta facendo altro di importante
+  bool speaking = cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0;
+  bool wxEligible = m == "normal" || m == "happy" || m == "stress" || m == "code" || m == "bored" || m == "sleepy";
+  if(wxa.kind.length() && (int32_t)(now - wxa.until) > 0) wxa.kind = "";
+  if(!wxa.kind.length() && wxEligible && !speaking && cs.wx.length()){
+    if(!wxa.next) wxa.next = now + 15000;                         // la prima poco dopo l'avvio
+    else if((int32_t)(now - wxa.next) > 0){
+      wxa.kind = cs.wx; wxa.until = now + WX_ANIM_MS; wxa.forced = false;
+      wxa.next = now + random(240000, 420000);                    // poi ogni 4-7 minuti
+    }
+  }
+  bool wxOn = wxa.kind.length() && !speaking && m != "ask" && (wxa.forced || wxEligible);
+
   if(compUpdAt && now - compUpdAt < 10000 && !(cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0)){
     // aggiornamento chiesto al PC, in attesa della risposta
     compEyes(cx - 34, cx + 34, 58, 40, 46, "surprised", moodColor("excited"));
     compText("Chiedo al PC", cx, 92, TFT_WHITE, top_center, &fonts::Font2);
     compText(("di aggiornare" + String("...").substring(0, (now / 300) % 4)).c_str(), cx, 110, TFT_WHITE, top_center, &fonts::Font2);
-  } else if(cs.msgText.length() && (int32_t)(cs.msgUntil - now) > 0 && m != "ask"){
+  } else if(speaking && m != "ask"){
     compSpeech(cs.msgEmo, cs.msgText, k, now);
+  } else if(wxOn){
+    compWeatherAnim(wxa.kind, now, k, ox);
   } else if(m == "music"){   // cuffie e occhi arcobaleno che ballano a tempo
     float beat = (now % 500) / 500.0f; int n = now / 500;
     int bounce = -(int)(6 * sin(3.14159f * beat)), sway = (int)(14 * sin(now * 3.14159f / 1000.0f));
@@ -615,19 +833,11 @@ void renderCompanion(){
   } else if(m == "osm"){
     compEyes(cx - 30 + ox / 2, cx + 30 + ox / 2, 38 + oy / 3, 38, max(2, (int)(32 * k)), "normal", moodColor("osm"));
     compOsm(cs.detail == "edit", now);
-  } else if(m == "work"){   // super concentrato
-    compEyes(cx - 52 + ox, cx + 8 + ox, 80 + oy, 46, max(2, (int)(50 * k)), "work", moodColor("work"));
-    compThought(now);
-    if(now % 5000 < 1500) compSweat(cx - 88, 56 + (now % 5000) / 50);
-  } else if(m == "ask"){
-    int b = (int)(3 * sin(now / 120.0));
-    compEyes(cx - 42, cx + 42, 64 + b, 62, 74, "ask", (now / 300) % 2 ? moodColor("ask") : rgb(255, 200, 120));
-    if((now / 400) % 2) compText("Ti cerco!", cx, 114, moodColor("ask"), top_center, &fonts::Font2);
+  } else if(m == "work" || m == "ask" || m == "done"){   // Claude Code: la mascotte
+    compClawd(m, now, k);
   } else {
-    int b = m == "done" ? -abs((int)(5 * sin(now / 150.0))) : 0;
     int h = m == "sleepy" || m == "bored" ? 60 : 76;
-    compEyes(cx - 46 + ox, cx + 46 + ox, 72 + oy + b, 62, max(2, (int)(h * k)), m, moodColor(m));
-    if(m == "done") compText("Fatto!", cx, 116, moodColor("done"), top_center, &fonts::Font2);
+    compEyes(cx - 46 + ox, cx + 46 + ox, 72 + oy, 62, max(2, (int)(h * k)), m, moodColor(m));
   }
   compMediaFooter(now);
   compTopBar();   // per ultima: gli archetti delle cuffie non la coprono

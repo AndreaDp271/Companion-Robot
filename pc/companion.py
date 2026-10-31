@@ -27,6 +27,7 @@ import serial
 from PIL import Image, ImageDraw
 from serial.tools import list_ports
 
+import macropad
 import updater
 from personality import Personality
 
@@ -49,6 +50,7 @@ except ImportError:
 PC_DIR = Path(__file__).resolve().parent
 ROOT = PC_DIR.parent
 FIRMWARE = ROOT / "firmware" / "rp2040" / "main.py"
+MACROPAD_BOARD = ROOT / "firmware" / "macropad" / "board.py"
 NOTIFY = PC_DIR / "notify.py"
 STATUSLINE = PC_DIR / "statusline.py"
 LAUNCHER = ROOT / "Desktop Companion.pyw"
@@ -67,7 +69,7 @@ APP_NAME = "DesktopCompanion"
 PYTHONW = Path(sys.executable).with_name("pythonw.exe")
 
 DEVICE_VIDS = {0x2E8A: "rp2040", 0x303A: "nesso"}  # Raspberry Pi RP2040, Espressif (Nesso N1)
-DEVICE_NAMES = {"rp2040": "robot", "nesso": "Nesso N1"}
+DEVICE_NAMES = {"rp2040": "robot", "nesso": "Nesso N1", "macropad": "macropad"}
 NESSO_APP_BIN = ROOT / "firmware" / "nesso_n1" / "build" / "NessoN1_Suite.ino.bin"
 NESSO_APP_OFFSET = "0x10000"  # solo l'app: bootloader, partizioni e impostazioni salvate restano
 UDP_PORT = 47800
@@ -495,9 +497,16 @@ def set_autostart(enabled):
 
 # ---------------------------------------------------------------- hub
 
-def find_ports():
-    """Dispositivi companion collegati: {porta: tipo}, tipo = "rp2040" o "nesso"."""
-    return {p.device: DEVICE_VIDS[p.vid] for p in list_ports.comports() if p.vid in DEVICE_VIDS}
+def find_ports(macropads=()):
+    """Dispositivi companion collegati: {porta: tipo}, tipo = "rp2040", "nesso" o "macropad".
+    Il macropad ha lo stesso chip del robot: lo riconosco dal numero di serie, che si è
+    segnato la prima volta che ha mandato "!hello macropad"."""
+    return {p.device: "macropad" if p.serial_number in macropads else DEVICE_VIDS[p.vid]
+            for p in list_ports.comports() if p.vid in DEVICE_VIDS}
+
+
+def port_serial(device):
+    return next((p.serial_number for p in list_ports.comports() if p.device == device), None)
 
 
 def open_port(device):
@@ -569,6 +578,8 @@ class Hub:
         self.paused = threading.Event()  # impostato mentre si aggiorna il firmware
         self.controller = ControllerWatcher()
         self.browser_url = BrowserUrl()
+        self.links = {}  # porta -> (serial, tipo)
+        self.pad = macropad.Macropad(self.cfg)
 
     # --- stato
     def set_activity(self, name):
@@ -841,12 +852,27 @@ class Hub:
             self.usage_refresh.wait(USAGE_EVERY)
             self.usage_refresh.clear()
 
+    def read_loop(self, dev, s):
+        """Comandi dal dispositivo (righe che iniziano con "!"), appena arrivano: i tasti
+        del macropad non possono aspettare il giro da un secondo del ciclo seriale."""
+        while s.is_open:
+            try:
+                line = s.readline().decode(errors="ignore").strip()
+            except (serial.SerialException, OSError, TypeError, AttributeError):
+                return  # porta chiusa dall'altro thread o dispositivo scollegato
+            if line.startswith("!"):
+                try:
+                    self.device_command(line, dev)
+                except Exception:  # un comando sbagliato non deve fermare la lettura
+                    log.exception("comando %s fallito", line)
+
     def serial_loop(self):
-        """Tiene aperti tutti i dispositivi collegati (robot RP2040, Nesso N1) e manda
+        """Tiene aperti tutti i dispositivi collegati (robot RP2040, Nesso N1, macropad) e manda
         a tutti gli stessi dati, ogni secondo o subito quando succede qualcosa."""
         self.browser_url.setup()  # update_state gira in questo thread
         psutil.cpu_percent(None)
-        links = {}  # porta -> (serial, tipo)
+        links = self.links
+        fresh = set()  # porte appena aperte: al macropad va mandata subito la mappa dei tasti
         last_scan = 0.0
         while True:
             if self.paused.is_set():  # aggiornamento firmware in corso: porte libere
@@ -858,11 +884,13 @@ class Hub:
                 continue
             if time.time() - last_scan > 2:
                 last_scan = time.time()
-                found = find_ports()
+                found = find_ports(self.cfg.get("macropads", []))
                 for dev, kind in found.items():
                     if dev not in links:
                         try:
                             links[dev] = (open_port(dev), kind)
+                            fresh.add(dev)
+                            threading.Thread(target=self.read_loop, args=(dev, links[dev][0]), daemon=True).start()
                             log.info("collegato: %s su %s", DEVICE_NAMES[kind], dev)
                         except (serial.SerialException, OSError) as e:
                             log.debug("non riesco ad aprire %s: %s", dev, e)
@@ -873,13 +901,15 @@ class Hub:
             self.update_state()
             if links:
                 payload = self.status_lines()
+                if any(k == "macropad" for _, k in links.values()):
+                    self.pad.poll_audio()
                 for dev, (s, kind) in list(links.items()):
                     try:
-                        s.write(payload)
-                        if s.in_waiting:  # comandi dal dispositivo (righe che iniziano con "!")
-                            for line in s.read(s.in_waiting).decode(errors="ignore").splitlines():
-                                if line.strip().startswith("!"):
-                                    self.device_command(line.strip(), kind)
+                        if kind == "macropad":
+                            s.write(payload + self.pad.lines(ascii_text, dev in fresh).encode())
+                        else:
+                            s.write(payload)
+                        fresh.discard(dev)
                     except (serial.SerialException, OSError) as e:
                         log.info("scollegato: %s su %s (%s)", DEVICE_NAMES[kind], dev, e)
                         s.close()
@@ -893,7 +923,25 @@ class Hub:
         self.next_msg_at = 0
         self.changed.set()
 
-    def device_command(self, cmd, kind):
+    def device_command(self, cmd, dev):
+        s, kind = self.links.get(dev, (None, "rp2040"))
+        if cmd.startswith("!hello macropad"):
+            if kind != "macropad":  # il robot appena collegato era in realtà il macropad
+                serial_no = port_serial(dev)
+                if serial_no and serial_no not in self.cfg.setdefault("macropads", []):
+                    self.cfg["macropads"].append(serial_no)
+                    save_config(self.cfg)
+                if dev in self.links:
+                    self.links[dev] = (s, "macropad")
+                log.info("su %s c'è il macropad (%s)", dev, cmd.split()[-1])
+                self.port = ", ".join(f"{DEVICE_NAMES[k]} ({d})" for d, (_, k) in self.links.items()) or None
+                self.pad.keys_sent = 0  # manda subito la mappa dei tasti
+                self.changed.set()
+            return
+        if kind == "macropad" and cmd.startswith(("!k", "!h", "!e")):
+            if self.pad.command(cmd):
+                self.changed.set()  # nuovo volume / muto: rimandalo subito al macropad
+            return
         log.info("comando da %s: %s", DEVICE_NAMES[kind], cmd)
         if cmd == "!update":  # KEY2 tenuto premuto sul Nesso: aggiorna da GitHub
             def job():
@@ -930,7 +978,7 @@ class Hub:
         self.icon.update_menu()
 
     def updates_text(self):
-        names = {"app": "app", "rp2040": "robot", "nesso": "Nesso N1"}
+        names = {"app": "app", "rp2040": "robot", "nesso": "Nesso N1", "macropad": "macropad"}
         return ", ".join(f"{names[k]} {new}" for k, (old, new) in self.updates.items())
 
     def apply_updates(self):
@@ -946,7 +994,7 @@ class Hub:
                 log.info("download aggiornamento fallito: %s", e)
                 self.icon.notify("Download non riuscito.", "Aggiornamenti")
                 return
-            fw_kinds = {k for k in ups if k in ("rp2040", "nesso")}
+            fw_kinds = {k for k in ups if k in ("rp2040", "nesso", "macropad")}
             if fw_kinds:
                 remote = updater.local_versions(src)
                 for kind, ok in self.flash_devices(src, fw_kinds):
@@ -980,11 +1028,17 @@ class Hub:
         root = Path(root)
 
         def flash(dev, kind):
-            if kind == "rp2040":
+            if kind in ("rp2040", "macropad"):  # il macropad usa il firmware del robot + board.py
                 cmd = [str(PYTHONW), "-m", "mpremote", "connect", dev,
-                       "cp", str(root / "firmware" / "rp2040" / "main.py"), ":main.py", "+", "reset"]
+                       "cp", str(root / "firmware" / "rp2040" / "main.py"), ":main.py", "+"]
+                if kind == "macropad":
+                    cmd += ["cp", str(root / MACROPAD_BOARD.relative_to(ROOT)), ":board.py", "+"]
+                cmd.append("reset")
             else:
                 app_bin = root / NESSO_APP_BIN.relative_to(ROOT)
+                own = ROOT / "firmware" / "nesso_n1" / "build_local" / "NessoN1_Suite.ino.bin"
+                if root == ROOT and own.exists():  # chi compila da sé (con le sue credenziali) usa il suo
+                    app_bin = own
                 if not app_bin.exists():
                     log.info("firmware Nesso non trovato: %s", app_bin)
                     return False
@@ -996,7 +1050,7 @@ class Hub:
                      (r.stdout + r.stderr)[-400:])
             return r.returncode == 0
 
-        devices = {d: k for d, k in find_ports().items() if not kinds or k in kinds}
+        devices = {d: k for d, k in find_ports(self.cfg.get("macropads", [])).items() if not kinds or k in kinds}
         results = []
         if not devices:
             return results

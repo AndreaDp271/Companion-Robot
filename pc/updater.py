@@ -47,13 +47,13 @@ def remote_versions():
 
 
 def pending(root, installed_fw):
-    """Cosa c'è da aggiornare: {"app": (vecchia, nuova), "rp2040": ..., "nesso": ...}.
+    """Cosa c'è da aggiornare: {"app": (vecchia, nuova), "rp2040": ..., "nesso": ..., "macropad": ...}.
     installed_fw: versioni del firmware già scritte sui dispositivi (salvate in config)."""
     local, remote = local_versions(root), remote_versions()
     out = {}
     if parse_version(remote.get("app", 0)) > parse_version(local.get("app", 0)):
         out["app"] = (local.get("app", "?"), remote["app"])
-    for dev in ("rp2040", "nesso"):
+    for dev in ("rp2040", "nesso", "macropad"):
         have = installed_fw.get(dev) or local.get(dev, "0")
         if parse_version(remote.get(dev, 0)) > parse_version(have):
             out[dev] = (have, remote[dev])
