@@ -1512,4 +1512,11 @@ def main():
         time.sleep_ms(30)
 
 
-main()
+try:
+    main()
+except Exception as e:  # non restare fermo sulla console: salva l'errore in errore.txt e riparti
+    with open("errore.txt", "a") as f:
+        f.write("--- %d ms dall'avvio\n" % time.ticks_ms())
+        sys.print_exception(e, f)
+    import machine
+    machine.reset()

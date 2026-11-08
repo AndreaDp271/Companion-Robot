@@ -356,9 +356,8 @@ def draw_key(label, sub, now):
         g["center_text"](label[:16], 2)
         for j, l in enumerate(g["wrap"](sub, 16)):
             g["center_text"](l, 14 + j * 10)
-    hop = -abs(int(3 * math.sin(now / 120)))
-    for cx, side in ((48, -1), (80, 1)):
-        g["draw_eye"](cx, 48 + hop, 22, 18, "excited", side)
+    g["v_reset"]()
+    g["face"]("excited", now / 1000, 0, 26 - abs(4 * math.sin(now / 120)), 0.42, brows=False)
 
 
 def draw(now):
